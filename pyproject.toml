@@ -7,11 +7,15 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+torch = "^2.5.1"
+torchvision = "^0.20.1"
+numpy = "^2.2.1"
 
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
 hypothesis = "^6.123.7"
+black = "^24.10.0"
 
 [build-system]
 requires = ["poetry-core"]
