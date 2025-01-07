@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "sgu-mlp"
+version = "0.1.0"
+description = "Implementation of the SGU-MLP Architecture (mostly) as described in the paper \"Spatial Gated Multi-Layer Perceptron for Land Use\"."
+authors = ["and Land Cover Mapping"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.4"
+hypothesis = "^6.123.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
