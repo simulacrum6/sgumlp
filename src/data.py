@@ -5,6 +5,7 @@ import scipy.io as sio
 import numpy as np
 
 from numpy.lib.stride_tricks import sliding_window_view
+from sklearn.decomposition import PCA
 
 
 def patchify(
@@ -112,17 +113,34 @@ class DatasetConfig:
             return cls(**json.load(f))
 
 
+class Dataset:
+    def __init__(self, name: str, features, labels_train, labels_test=None):
+        self.name = name
+        self._features = features
+        self._labels_train = labels_train
+        self._labels_test = labels_test
+
+    def data(self, features: list[str] | None = None):
+        if features is None:
+            feats = [f["data"] for _, f in self._features.items()]
+        else:
+            feats = [self._features[f]["data"] for f in features]
+
+        return np.concatenate(feats, axis=-1)
+
+    def feature(self, name):
+        return self._features[name]
+
 def _load_matrix(fp: Path):
     fp = Path(fp)
     return fp.stem, sio.loadmat(str(fp))[fp.stem]
-
 
 def load_dataset(cfg: DatasetConfig):
     base_path = Path(cfg.base_dir)
 
     features = []
     feature_names = []
-    sizes = [0]
+    sizes = []
     for file_name in cfg.feature_files:
         file_path = base_path / file_name
         feature_name, matrix = _load_matrix(file_path)
@@ -136,10 +154,9 @@ def load_dataset(cfg: DatasetConfig):
         sizes.append(size)
 
     image = np.concatenate(features, axis=-1)
-    sizes = sliding_window_view(sizes, window_shape=2)
     feature_info = {
-        feature_name: {"name": feature_name, "indices": channel_indices}
-        for feature_name, channel_indices in zip(feature_names, sizes)
+        feature_name: {"name": feature_name, "size": size, "data": data}
+        for feature_name, size, data in zip(feature_names, sizes, features)
     }
 
     _, labels = _load_matrix(base_path / cfg.labels_file)
@@ -159,6 +176,34 @@ def load_dataset(cfg: DatasetConfig):
     }
 
 
+def reduce_dimensions(data, num_components=15, valid_indices=None, return_pca=False):
+    X = data
+    h, w, c = X.shape
+
+    if valid_indices is not None:
+        X = X[valid_indices]
+
+    if X.ndim > 2:
+        X = X.reshape(-1, c)
+
+    pca = PCA(n_components=num_components, whiten=True).fit(X)
+    X_reduced = pca.transform(data.reshape(-1, c)).reshape(h, w, num_components)
+
+    if return_pca:
+        return X_reduced, pca
+
+    return X_reduced
+
+def make_image(dataset, features: list[str] | None = None):
+    if features is None:
+        features = dataset.features.keys()
+
+    X = []
+    for feature in features:
+        X.append(dataset["features"][feature]["data"])
+
+    return np.concatenate(X, axis=-1)
+
 if __name__ == "__main__":
     cfg = DatasetConfig.from_json(".augsburg.json")
     dataset = load_dataset(cfg)
@@ -167,5 +212,23 @@ if __name__ == "__main__":
     labels_train = dataset["labels"]
     labels_test = dataset["labels_test"]
 
+    hs_feat = dataset["features"]["data_HS_LR"]
+    hs = hs_feat["data"]
+    n_components = 15
+    train_indices = labels_train != 0
+
+    hs_pca, pca = reduce_dimensions(hs, n_components, train_indices)
+    name = 'data_HS_LR_pca15'
+    dataset['features'][name] = {'name': name, 'size': n_components, 'data': hs_pca}
+
+    features = [
+        'data_DSM',
+        'data_HS_LR_pca15',
+        'data_SAR_HR',
+    ]
+    image = make_image(dataset, features)
+
     X_train, y_train = patchify(image, labels_train)
     X_test, y_test = patchify(image, labels_test)
+
+
