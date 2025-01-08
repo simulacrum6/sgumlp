@@ -194,21 +194,27 @@ def reduce_dimensions(data, num_components=15, valid_indices=None, return_pca=Fa
 
     return X_reduced
 
-def make_image(dataset, features: list[str] | None = None):
+def make_image(dataset, features: list[str] | None = None, missing_value=0):
     if features is None:
         features = dataset.features.keys()
+    h, w = dataset["dimensions"][:2]
 
     X = []
+    current_channel = 0
     for feature in features:
-        X.append(dataset["features"][feature]["data"])
+        feat = dataset["features"].get(feature)
+        if feat is None:
+            print(f'Feature "{feat}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
+            X.append(np.full((h, w, 1), missing_value))
+            current_channel += 1
+        else:
+            X.append(feat["data"])
+            current_channel += feat["size"]
 
     return np.concatenate(X, axis=-1)
 
-if __name__ == "__main__":
-    cfg = DatasetConfig.from_json(".augsburg.json")
-    dataset = load_dataset(cfg)
 
-    image = dataset["data"]
+def preprocess(dataset):
     labels_train = dataset["labels"]
     labels_test = dataset["labels_test"]
 
@@ -230,5 +236,15 @@ if __name__ == "__main__":
 
     X_train, y_train = patchify(image, labels_train)
     X_test, y_test = patchify(image, labels_test)
+    return X_train, X_test, y_train, y_test
+
+def load_data_from_json_and_preprocess(json_path: str):
+    cfg = DatasetConfig.from_json(json_path)
+    dataset = load_dataset(cfg)
+    X_train, X_test, y_train, y_test = preprocess(dataset)
+    return X_train, X_test, y_train, y_test, dataset
+
+if __name__ == "__main__":
+    X_train, X_test, y_train, y_test, dataset = load_data_from_json_and_preprocess(json_path=".berlin.json")
 
 
