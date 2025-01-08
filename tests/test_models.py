@@ -2,6 +2,7 @@ import torch
 
 from src.models import MLPMixer, SGUMLPMixer
 
+
 def test_MLPMixer(hs_image):
     mixer = MLPMixer(
         hs_image.shape[1:],

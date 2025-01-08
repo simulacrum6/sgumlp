@@ -6,6 +6,7 @@ import torch
 def hs_image():
     return torch.randn(2, 16, 128, 128)
 
+
 @pytest.fixture
 def image_and_labels():
     image = torch.rand((128, 128, 16)).numpy()

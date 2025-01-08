@@ -11,7 +11,6 @@ def test_patchify(image_and_labels):
     assert X.shape[1:3] == (patch_size, patch_size)
     assert X.shape[-1] == image.shape[-1]
 
-
     X, y = patchify(image, labels, patch_size=patch_size, only_valid=False)
     assert X.shape[0] == np.prod(image.shape[:2])
 

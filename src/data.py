@@ -7,7 +7,14 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-def patchify(image: np.ndarray, labels=None, patch_size: int=9, pad_value=0, mask_value=0, only_valid=True):
+def patchify(
+    image: np.ndarray,
+    labels=None,
+    patch_size: int = 9,
+    pad_value=0,
+    mask_value=0,
+    only_valid=True,
+):
     """Extract square patches centered on each pixel of a 2D or N-D image array.
 
     Args:
@@ -50,17 +57,19 @@ def patchify(image: np.ndarray, labels=None, patch_size: int=9, pad_value=0, mas
         - Feature dimensions (after H,W) are preserved in output patches
     """
     if patch_size % 2 == 0:
-        raise ValueError('patch_size must be odd')
+        raise ValueError("patch_size must be odd")
     offset = patch_size // 2
 
     image = np.array(image, copy=True)
     labels = np.array(labels, copy=True) if labels is not None else None
 
     if image.ndim < 2:
-        raise ValueError('image must have at least 2 dimensions')
+        raise ValueError("image must have at least 2 dimensions")
 
     if (labels is not None) and (image.shape[:2] != labels.shape[:2]):
-        raise ValueError('first two dimensions of image and labels must have the same shape')
+        raise ValueError(
+            "first two dimensions of image and labels must have the same shape"
+        )
 
     # configure sliding windows
     pad_width = [(offset, offset), (offset, offset)]
@@ -73,7 +82,9 @@ def patchify(image: np.ndarray, labels=None, patch_size: int=9, pad_value=0, mas
         window_shape.extend(image.shape[2:])
 
     # extract patches
-    image = np.pad(image, pad_width=pad_width, mode='constant', constant_values=pad_value)
+    image = np.pad(
+        image, pad_width=pad_width, mode="constant", constant_values=pad_value
+    )
     image = sliding_window_view(image, window_shape=window_shape).squeeze()
 
     # filter for valid pixels and reshape
@@ -85,11 +96,6 @@ def patchify(image: np.ndarray, labels=None, patch_size: int=9, pad_value=0, mas
         image = image.reshape(-1, *image.shape[2:])
 
     return image, labels
-
-
-def _load_matrix(fp: Path):
-    fp = Path(fp)
-    return fp.stem, sio.loadmat(str(fp))[fp.stem]
 
 
 @dataclass
@@ -104,6 +110,12 @@ class DatasetConfig:
     def from_json(cls, path):
         with open(path) as f:
             return cls(**json.load(f))
+
+
+def _load_matrix(fp: Path):
+    fp = Path(fp)
+    return fp.stem, sio.loadmat(str(fp))[fp.stem]
+
 
 def load_dataset(cfg: DatasetConfig):
     base_path = Path(cfg.base_dir)
@@ -126,7 +138,7 @@ def load_dataset(cfg: DatasetConfig):
     image = np.concatenate(features, axis=-1)
     sizes = sliding_window_view(sizes, window_shape=2)
     feature_info = {
-        feature_name: { 'name': feature_name, 'indices': channel_indices}
+        feature_name: {"name": feature_name, "indices": channel_indices}
         for feature_name, channel_indices in zip(feature_names, sizes)
     }
 
@@ -138,22 +150,22 @@ def load_dataset(cfg: DatasetConfig):
         labels_test = None
 
     return {
-        'name': cfg.name,
-        'features': feature_info,
-        'dimensions': image.shape,
-        'data': image,
-        'labels': labels,
-        'labels_test': labels_test if labels_test is not None else None,
+        "name": cfg.name,
+        "features": feature_info,
+        "dimensions": image.shape,
+        "data": image,
+        "labels": labels,
+        "labels_test": labels_test if labels_test is not None else None,
     }
 
 
-if __name__ == '__main__':
-    cfg = DatasetConfig.from_json('.augsburg.json')
+if __name__ == "__main__":
+    cfg = DatasetConfig.from_json(".augsburg.json")
     dataset = load_dataset(cfg)
 
-    image = dataset['data']
-    labels_train = dataset['labels']
-    labels_test = dataset['labels_test']
+    image = dataset["data"]
+    labels_train = dataset["labels"]
+    labels_test = dataset["labels_test"]
 
     X_train, y_train = patchify(image, labels_train)
     X_test, y_test = patchify(image, labels_test)
