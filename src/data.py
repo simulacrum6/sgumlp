@@ -113,6 +113,25 @@ class DatasetConfig:
             return cls(**json.load(f))
 
 
+# Dataset.
+
+
+class Feature:
+    def __init__(self, name, data: np.ndarray, parent_feature=None, metadata=None):
+        self.name = name
+        self.data = data
+        self.parent_feature = parent_feature
+        self.metadata = {} if metadata is None else metadata
+
+    @property
+    def size(self):
+        return self.data.shape[-1]
+
+    def map(self, fn, name):
+        data = fn(self.data)
+        return Feature(name, data, self)
+
+
 class Dataset:
     def __init__(self, name: str, features, labels_train, labels_test=None):
         self.name = name
@@ -130,6 +149,9 @@ class Dataset:
 
     def feature(self, name):
         return self._features[name]
+
+    def image_dimensions(self):
+        return self._features.values().shape
 
 def _load_matrix(fp: Path):
     fp = Path(fp)
@@ -155,7 +177,7 @@ def load_dataset(cfg: DatasetConfig):
 
     image = np.concatenate(features, axis=-1)
     feature_info = {
-        feature_name: {"name": feature_name, "size": size, "data": data}
+        feature_name: Feature(feature_name, data)
         for feature_name, size, data in zip(feature_names, sizes, features)
     }
 
@@ -204,12 +226,12 @@ def make_image(dataset, features: list[str] | None = None, missing_value=0):
     for feature in features:
         feat = dataset["features"].get(feature)
         if feat is None:
-            print(f'Feature "{feat}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
+            print(f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
             X.append(np.full((h, w, 1), missing_value))
             current_channel += 1
         else:
-            X.append(feat["data"])
-            current_channel += feat["size"]
+            X.append(feat.data)
+            current_channel += feat.size
 
     return np.concatenate(X, axis=-1)
 
@@ -219,13 +241,13 @@ def preprocess(dataset):
     labels_test = dataset["labels_test"]
 
     hs_feat = dataset["features"]["data_HS_LR"]
-    hs = hs_feat["data"]
+    hs = hs_feat.data
     n_components = 15
     train_indices = labels_train != 0
 
-    hs_pca, pca = reduce_dimensions(hs, n_components, train_indices)
+    hs_pca, pca = reduce_dimensions(hs, n_components, train_indices, return_pca=True)
     name = 'data_HS_LR_pca15'
-    dataset['features'][name] = {'name': name, 'size': n_components, 'data': hs_pca}
+    dataset['features'][name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
     features = [
         'data_DSM',
@@ -245,6 +267,11 @@ def load_data_from_json_and_preprocess(json_path: str):
     return X_train, X_test, y_train, y_test, dataset
 
 if __name__ == "__main__":
-    X_train, X_test, y_train, y_test, dataset = load_data_from_json_and_preprocess(json_path=".berlin.json")
+    json_path = ".berlin.json"
+    cfg = DatasetConfig.from_json(json_path)
+    dataset = load_dataset(cfg)
+    X_train, X_test, y_train, y_test = preprocess(dataset)
+
+    X_train, X_test, y_train, y_test, dataset = load_data_from_json_and_preprocess(json_path=json_path)
 
 
