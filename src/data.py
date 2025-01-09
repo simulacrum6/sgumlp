@@ -3,10 +3,25 @@ from dataclasses import dataclass
 from pathlib import Path
 import scipy.io as sio
 import numpy as np
+import typing
 
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
 
+
+def _load_matrix(fp: Path | str):
+    fp = Path(fp)
+    return sio.loadmat(str(fp))[fp.stem]
+
+def _load_feature(fp: Path | str):
+    fp = Path(fp)
+    matrix = _load_matrix(fp)
+    name = fp.stem
+
+    if matrix.ndim == 2:
+        matrix = np.expand_dims(matrix, axis=-1)
+
+    return Feature(name, matrix)
 
 def patchify(
     image: np.ndarray,
@@ -113,9 +128,6 @@ class DatasetConfig:
             return cls(**json.load(f))
 
 
-# Dataset.
-
-
 class Feature:
     def __init__(self, name, data: np.ndarray, parent_feature=None, metadata=None):
         self.name = name
@@ -133,73 +145,61 @@ class Feature:
 
 
 class Dataset:
-    def __init__(self, name: str, features, labels_train, labels_test=None):
+    def __init__(self, name: str, features: typing.Sequence[Feature], labels_train, labels_test=None, config: DatasetConfig | None=None):
         self.name = name
-        self._features = features
-        self._labels_train = labels_train
-        self._labels_test = labels_test
+        self.features = {feature.name: feature for feature in features}
+        self.labels_train = labels_train
+        self.labels_test = labels_test
+        self.image_dimensions = features[0].data.shape[:2] # todo: make sure this is the same for all features
+        self.config = config
 
-    def data(self, features: list[str] | None = None):
+    def data(self, features: list[str] | None = None, missing_value=0):
+        h, w = self.image_dimensions
+
         if features is None:
-            feats = [f["data"] for _, f in self._features.items()]
-        else:
-            feats = [self._features[f]["data"] for f in features]
+            features = self.features.keys()
 
-        return np.concatenate(feats, axis=-1)
+        feature_map = []
+        current_channel = 0
+        for feature in features:
+            feat = self.feature(feature)
+            if feat is None:
+                print(
+                    f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
+                feature_map.append(np.full((h, w, 1), missing_value))
+                current_channel += 1
+            else:
+                feature_map.append(feat.data)
+                current_channel += feat.size
+
+        return np.concatenate(feature_map, axis=-1)
 
     def feature(self, name):
-        return self._features[name]
+        return self.features.get(name)
 
-    def image_dimensions(self):
-        return self._features.values().shape
+    @classmethod
+    def from_config(cls, config: DatasetConfig):
+        base_path = Path(config.base_dir)
 
-def _load_matrix(fp: Path):
-    fp = Path(fp)
-    return fp.stem, sio.loadmat(str(fp))[fp.stem]
+        features = [_load_feature(base_path / file_name) for file_name in config.feature_files]
+        labels_train = _load_matrix(base_path / config.labels_file)
+        labels_test = _load_matrix(base_path / config.labels_file_test) if config.labels_file_test else None
 
-def load_dataset(cfg: DatasetConfig):
-    base_path = Path(cfg.base_dir)
+        return cls(
+            name=config.name,
+            features=features,
+            labels_train=labels_train,
+            labels_test=labels_test,
+            config=config,
+        )
 
-    features = []
-    feature_names = []
-    sizes = []
-    for file_name in cfg.feature_files:
-        file_path = base_path / file_name
-        feature_name, matrix = _load_matrix(file_path)
-        if matrix.ndim == 2:
-            matrix = np.expand_dims(matrix, axis=-1)
-
-        size = matrix.shape[-1]
-
-        features.append(matrix)
-        feature_names.append(feature_name)
-        sizes.append(size)
-
-    image = np.concatenate(features, axis=-1)
-    feature_info = {
-        feature_name: Feature(feature_name, data)
-        for feature_name, size, data in zip(feature_names, sizes, features)
-    }
-
-    _, labels = _load_matrix(base_path / cfg.labels_file)
-
-    if cfg.labels_file_test is not None:
-        _, labels_test = _load_matrix(base_path / cfg.labels_file_test)
-    else:
-        labels_test = None
-
-    return {
-        "name": cfg.name,
-        "features": feature_info,
-        "dimensions": image.shape,
-        "data": image,
-        "labels": labels,
-        "labels_test": labels_test if labels_test is not None else None,
-    }
+    @classmethod
+    def from_json(cls, json_path: str):
+        return cls.from_config(DatasetConfig.from_json(json_path))
 
 
-def reduce_dimensions(data, num_components=15, valid_indices=None, return_pca=False):
-    X = data
+def reduce_dimensions(data: np.ndarray, num_components=15, valid_indices=None, return_pca=False):
+    X = np.array(data)
     h, w, c = X.shape
 
     if valid_indices is not None:
@@ -216,62 +216,36 @@ def reduce_dimensions(data, num_components=15, valid_indices=None, return_pca=Fa
 
     return X_reduced
 
-def make_image(dataset, features: list[str] | None = None, missing_value=0):
-    if features is None:
-        features = dataset.features.keys()
-    h, w = dataset["dimensions"][:2]
 
-    X = []
-    current_channel = 0
-    for feature in features:
-        feat = dataset["features"].get(feature)
-        if feat is None:
-            print(f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
-            X.append(np.full((h, w, 1), missing_value))
-            current_channel += 1
-        else:
-            X.append(feat.data)
-            current_channel += feat.size
+def preprocess(dataset: Dataset):
+    labels_train = dataset.labels_train
+    labels_test = dataset.labels_test
 
-    return np.concatenate(X, axis=-1)
-
-
-def preprocess(dataset):
-    labels_train = dataset["labels"]
-    labels_test = dataset["labels_test"]
-
-    hs_feat = dataset["features"]["data_HS_LR"]
+    hs_feat = dataset.feature("data_HS_LR")
     hs = hs_feat.data
     n_components = 15
     train_indices = labels_train != 0
 
     hs_pca, pca = reduce_dimensions(hs, n_components, train_indices, return_pca=True)
     name = 'data_HS_LR_pca15'
-    dataset['features'][name] = Feature(name, hs_pca, parent_feature=hs_feat)
+    dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
     features = [
         'data_DSM',
         'data_HS_LR_pca15',
         'data_SAR_HR',
     ]
-    image = make_image(dataset, features)
+    image = dataset.data(features)
 
     X_train, y_train = patchify(image, labels_train)
     X_test, y_test = patchify(image, labels_test)
     return X_train, X_test, y_train, y_test
 
-def load_data_from_json_and_preprocess(json_path: str):
-    cfg = DatasetConfig.from_json(json_path)
-    dataset = load_dataset(cfg)
-    X_train, X_test, y_train, y_test = preprocess(dataset)
-    return X_train, X_test, y_train, y_test, dataset
 
 if __name__ == "__main__":
     json_path = ".berlin.json"
     cfg = DatasetConfig.from_json(json_path)
-    dataset = load_dataset(cfg)
+    dataset = Dataset.from_json(json_path)
     X_train, X_test, y_train, y_test = preprocess(dataset)
-
-    X_train, X_test, y_train, y_test, dataset = load_data_from_json_and_preprocess(json_path=json_path)
 
 
