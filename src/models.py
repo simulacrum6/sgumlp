@@ -362,6 +362,8 @@ class SGUMLPMixer(torch.nn.Module):
         dwc_kernels=(1, 3, 5),
         num_blocks=1,
         activation="gelu",
+        residual_weight=2,
+        learnable_residual=False
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -378,6 +380,7 @@ class SGUMLPMixer(torch.nn.Module):
         self.n_channels = token_features
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
+        self.residual_weight = torch.nn.Parameter(torch.tensor(residual_weight)) if learnable_residual else residual_weight
         self.token_embedding = torch.nn.Conv2d(
             patch_channels, self.n_channels, kernel_size=1
         )
@@ -399,7 +402,7 @@ class SGUMLPMixer(torch.nn.Module):
         x = x.moveaxis(-1, 1)
         residual = x
         x = self.dwc(x)
-        x = x + residual * 2
+        x = x + (residual * self.residual_weight)
         x = self.token_embedding(x)
         x = x.reshape(b, self.n_channels, self.n_tokens).transpose(1, 2)
         for block in self.mixer_blocks:
