@@ -18,16 +18,15 @@ def test_MLPMixer(hs_image):
     assert torch.all(torch.eq(out_shape, expected_shape))
 
 
-def test_SGUMLPMixer(hs_image):
+def test_SGUMLPMixer(patches):
     mixer = SGUMLPMixer(
-        hs_image.shape[1:],
-        patch_size=16,
+        patches.shape[1:],
         token_features=256,
         mixer_mlp_hidden_features=768,
         num_blocks=2,
         activation="relu",
     )
-    y = mixer(hs_image)
+    y = mixer(patches)
     out_shape = torch.tensor(y.shape)
-    expected_shape = torch.tensor([hs_image.shape[0], mixer.n_tokens, mixer.n_channels])
+    expected_shape = torch.tensor([patches.shape[0], mixer.n_tokens, mixer.n_channels])
     assert torch.all(torch.eq(out_shape, expected_shape))

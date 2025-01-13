@@ -98,6 +98,7 @@ class SpatialGatedUnit(torch.nn.Module):
         return u * ((self.weights @ v) + self.bias)
 
 
+# todo: make sgu optional input to MLPBlock
 class MLPBlock(torch.nn.Module):
     """
     A basic Multi-Layer Perceptron block with two linear layers and an activation function.
@@ -335,8 +336,7 @@ class SGUMLPMixer(torch.nn.Module):
 
     def __init__(
         self,
-        image_dimensions,
-        patch_size: int,
+        input_dimensions,
         token_features: int,
         mixer_mlp_hidden_features: int,
         dwc_kernels=(1, 3, 5),
@@ -344,21 +344,28 @@ class SGUMLPMixer(torch.nn.Module):
         activation="gelu",
     ):
         super().__init__()
-        self.image_dimensions = image_dimensions
-        h, w, c = image_dimensions
-        self.n_tokens = calc_n_tokens(h, w, patch_size)
-        self.patch_size = patch_size
+        self.patch_dimensions = input_dimensions
+
+        # validate dimensions
+        patch_height, patch_width, patch_channels = input_dimensions
+        if patch_height != patch_width:
+            raise ValueError("Patch size must be square")
+        if patch_height % 2 == 0:
+            raise ValueError("Patch height must be odd")
+
+        self.patch_size = patch_height
+        self.n_tokens = patch_height * patch_width
         self.n_channels = token_features
 
-        self.dwc = ParallelDepthwiseConv2d(c, dwc_kernels)
+        self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
         self.token_embedding = torch.nn.Conv2d(
-            c, token_features, kernel_size=patch_size, stride=patch_size
+            patch_channels, self.n_channels, kernel_size=1
         )
         self.mixer_blocks = torch.nn.ModuleList()
         for _ in range(num_blocks):
             self.mixer_blocks.append(
                 MLPMixerBlock(
-                    in_features=token_features,
+                    in_features=self.n_channels,
                     hidden_features=mixer_mlp_hidden_features,
                     sequence_length=self.n_tokens,
                     activation=activation,

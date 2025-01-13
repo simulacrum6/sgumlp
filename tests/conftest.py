@@ -12,3 +12,7 @@ def image_and_labels():
     image = torch.rand((128, 128, 16)).numpy()
     labels = torch.randint(0, 10, (128, 128)).long().numpy()
     return image, labels
+
+@pytest.fixture
+def patches():
+    return torch.randn(768, 9, 9, 32)
