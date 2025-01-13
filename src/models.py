@@ -189,27 +189,31 @@ mlp_blocks = {
 
 class MLPMixerBlock(torch.nn.Module):
     """
-    Implementation of a single MLP-Mixer block that performs token and channel mixing.
+    A block in the MLP-Mixer architecture that performs both token and channel mixing operations.
+
+    This block applies two types of mixing:
+    1. Token mixing: Processes relationships between different tokens at the same feature
+    2. Channel mixing: Processes relationships between different features for each token
 
     Args:
         in_features (int): Number of input features per token
-        hidden_features (int): Number of hidden features in the MLP blocks
         sequence_length (int): Number of tokens in the sequence
-        activation (str, optional): Activation function to use. Defaults to 'gelu'
-        mlp_block (str, optional): Type of MLP block to use ('mlp' or 'sgu'). Defaults to 'mlp'
+        hidden_features_channel (int): Number of hidden dimensions in the channel mixing MLP
+        hidden_features_sequence (int): Number of hidden dimensions in the token mixing MLP
+        activation (str, optional): Name of activation function to use. Defaults to 'gelu'
+        mlp_block (str, optional): Type of MLP block implementation ('mlp' or 'sgu'). Defaults to 'mlp'
 
-    Forward Args:
-        x (torch.Tensor): Input tensor of shape [batch_size, sequence_length, in_features]
-
-    Returns:
-        torch.Tensor: Processed tensor after token and channel mixing
+    Input Shape:
+        - Input: (batch_size, sequence_length, in_features)
+        - Output: (batch_size, sequence_length, in_features)
     """
 
     def __init__(
         self,
         in_features,
-        hidden_features,
         sequence_length,
+        hidden_features_channel,
+        hidden_features_sequence,
         activation="gelu",
         mlp_block="mlp",
     ):
@@ -219,13 +223,13 @@ class MLPMixerBlock(torch.nn.Module):
         self.layer_norm = torch.nn.LayerNorm([in_features])
         self.channel_mixer = mlp_block(
             in_features=in_features,
-            hidden_features=hidden_features,
+            hidden_features=hidden_features_channel,
             sequence_length=sequence_length,
             activation=activation,
         )
         self.token_mixer = mlp_block(
             in_features=sequence_length,
-            hidden_features=hidden_features,
+            hidden_features=hidden_features_sequence,
             sequence_length=in_features,
             activation=activation,
         )
@@ -260,21 +264,25 @@ def calc_n_tokens(height, width, patch_size):
 
 class MLPMixer(torch.nn.Module):
     """
-    Implementation of the MLP-Mixer architecture for image processing.
+    MLP-Mixer architecture for processing images.
+
+    The model first splits input images into patches, projects them to a token embedding space,
+    and then processes them through multiple MLPMixer blocks. It relies purely on MLPs for
+    both spatial (token) and channel mixing, avoiding attention mechanisms.
 
     Args:
-        image_dimensions (tuple): Tuple of (height, width, channels) for input images
-        patch_size (int): Size of image patches
-        token_features (int): Number of features per token
-        mixer_mlp_hidden_features (int): Number of hidden features in mixer MLP blocks
-        num_blocks (int, optional): Number of mixer blocks to use. Defaults to 1
-        activation (str, optional): Activation function to use. Defaults to 'gelu'
+        image_dimensions (tuple): Image input shape as (height, width, channels)
+        patch_size (int): Size of square patches to divide the image into
+        token_features (int): Number of features in token embedding space
+        mixer_features_channel (int): Hidden dimension size for channel-mixing MLPs
+        mixer_features_sequence (int): Hidden dimension size for token-mixing MLPs
+        num_blocks (int, optional): Number of sequential mixer blocks. Defaults to 1
+        activation (str, optional): Activation function for MLPs. Defaults to 'gelu'
 
-    Forward Args:
-        x (torch.Tensor): Input tensor of shape [batch_size, height, width, channels]
-
-    Returns:
-        torch.Tensor: Processed tensor of shape [batch_size, n_tokens, token_features]
+    Input Shape:
+        - Input: (batch_size, height, width, channels)
+        - Output: (batch_size, n_tokens, token_features)
+        where n_tokens = (height * width) / (patch_size * patch_size)
     """
 
     def __init__(
@@ -282,7 +290,8 @@ class MLPMixer(torch.nn.Module):
         image_dimensions,
         patch_size: int,
         token_features: int,
-        mixer_mlp_hidden_features: int,
+        mixer_features_channel: int,
+        mixer_features_sequence: int,
         num_blocks=1,
         activation="gelu",
     ):
@@ -299,7 +308,8 @@ class MLPMixer(torch.nn.Module):
             self.mixer_blocks.append(
                 MLPMixerBlock(
                     in_features=self.n_channels,
-                    hidden_features=mixer_mlp_hidden_features,
+                    hidden_features_channel=mixer_features_channel,
+                    hidden_features_sequence=mixer_features_sequence,
                     sequence_length=self.n_tokens,
                     activation=activation,
                 )
@@ -316,29 +326,39 @@ class MLPMixer(torch.nn.Module):
 
 class SGUMLPMixer(torch.nn.Module):
     """
-    Implementation of MLP-Mixer with Spatial Gated Units and depthwise convolutions.
+    MLP-Mixer variant using Spatial Gated Units (SGU) and parallel depthwise convolutions with residual connections.
+
+    This implementation enhances the base MLP-Mixer through several architectural modifications:
+    1. Replacing standard MLPs with Spatial Gated Units (SGU)
+    2. Using parallel depthwise convolutions with multiple kernel sizes for multi-scale feature extraction
+    3. Employing direct patch processing instead of image-level patching
+    4. Adding a scaled residual connection (2x) around the depthwise convolution layer
 
     Args:
-        image_dimensions (tuple): Tuple of (height, width, channels) for input images
-        patch_size (int): Size of image patches
-        token_features (int): Number of features per token
-        mixer_mlp_hidden_features (int): Number of hidden features in mixer MLP blocks
-        dwc_kernels (tuple, optional): Kernel sizes for depthwise convolutions. Defaults to (1, 3, 5)
-        num_blocks (int, optional): Number of mixer blocks to use. Defaults to 1
-        activation (str, optional): Activation function to use. Defaults to 'gelu'
+        input_dimensions (tuple): Input patch dimensions as (height, width, channels)
+        token_features (int): Dimension of the token embedding space
+        mixer_features_channel (int): Hidden dimension for channel-mixing SGU blocks
+        mixer_features_sequence (int): Hidden dimension for token-mixing SGU blocks
+        dwc_kernels (tuple, optional): Kernel sizes for parallel depthwise convolutions. Defaults to (1, 3, 5)
+        num_blocks (int, optional): Number of sequential mixer blocks. Defaults to 1
+        activation (str, optional): Activation function for SGU blocks. Defaults to 'gelu'
 
-    Forward Args:
-        x (torch.Tensor): Input tensor of shape [batch_size, height, width, channels] corresponding to image_dimensions.
+    Input / Output Shapes:
+        - Input: (batch_size, patch_height, patch_width, patch_channels)
+        - Output: (batch_size, n_tokens, token_features)
+        where n_tokens = patch_height * patch_width
 
-    Returns:
-        torch.Tensor: Processed tensor of shape [batch_size, n_tokens, token_features]
+    Notes:
+        - Patch dimensions must be square (height == width)
+        - Patch height/width must be odd-numbered
+        - All mixer blocks use SGU instead of standard MLPs for both token and channel mixing
     """
-
     def __init__(
         self,
         input_dimensions,
         token_features: int,
-        mixer_mlp_hidden_features: int,
+        mixer_features_channel: int,
+        mixer_features_sequence: int,
         dwc_kernels=(1, 3, 5),
         num_blocks=1,
         activation="gelu",
@@ -366,8 +386,9 @@ class SGUMLPMixer(torch.nn.Module):
             self.mixer_blocks.append(
                 MLPMixerBlock(
                     in_features=self.n_channels,
-                    hidden_features=mixer_mlp_hidden_features,
                     sequence_length=self.n_tokens,
+                    hidden_features_channel=mixer_features_channel,
+                    hidden_features_sequence=mixer_features_sequence,
                     activation=activation,
                     mlp_block="sgu",
                 )
@@ -376,7 +397,9 @@ class SGUMLPMixer(torch.nn.Module):
     def forward(self, x):
         b = x.shape[0]
         x = x.moveaxis(-1, 1)
+        residual = x
         x = self.dwc(x)
+        x = x + residual * 2
         x = self.token_embedding(x)
         x = x.reshape(b, self.n_channels, self.n_tokens).transpose(1, 2)
         for block in self.mixer_blocks:

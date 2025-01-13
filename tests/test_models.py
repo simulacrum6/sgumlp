@@ -8,7 +8,8 @@ def test_MLPMixer(hs_image):
         hs_image.shape[1:],
         patch_size=16,
         token_features=256,
-        mixer_mlp_hidden_features=768,
+        mixer_features_channel=768,
+        mixer_features_sequence=768,
         num_blocks=2,
         activation="relu",
     )
@@ -22,7 +23,8 @@ def test_SGUMLPMixer(patches):
     mixer = SGUMLPMixer(
         patches.shape[1:],
         token_features=256,
-        mixer_mlp_hidden_features=768,
+        mixer_features_channel=768,
+        mixer_features_sequence=768,
         num_blocks=2,
         activation="relu",
     )
