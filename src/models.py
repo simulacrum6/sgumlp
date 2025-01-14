@@ -441,7 +441,9 @@ class Classifier(torch.nn.Module):
 
 
 class LCLFModel(L.LightningModule):
-    def __init__(self, model, loss=torch.nn.CrossEntropyLoss, optimizer=torch.optim.Adam, lr=1e-3):
+    def __init__(
+        self, model, loss=torch.nn.CrossEntropyLoss, optimizer=torch.optim.Adam, lr=1e-3
+    ):
         super().__init__()
         self.model = model
         self.loss = loss()
@@ -466,5 +468,3 @@ class LCLFModel(L.LightningModule):
 
     def configure_optimizers(self):
         return self.optimizer_cls(self.parameters(), self.lr)
-
-

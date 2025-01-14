@@ -10,7 +10,7 @@ from src.models import (
     DepthWiseConv2d,
     ParallelDepthwiseConv2d,
     Classifier,
-    LCLFModel
+    LCLFModel,
 )
 
 
@@ -139,6 +139,7 @@ def test_Classifier_with_model(tokens):
     )
     clf = Classifier(k, d_ffn, model)
     assert clf(tokens).shape == (b, k)
+
 
 def test_LCLFModel(tokens):
     b, t, c = tokens.shape
