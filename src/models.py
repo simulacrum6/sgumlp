@@ -353,6 +353,7 @@ class SGUMLPMixer(torch.nn.Module):
         - Patch height/width must be odd-numbered
         - All mixer blocks use SGU instead of standard MLPs for both token and channel mixing
     """
+
     def __init__(
         self,
         input_dimensions,
@@ -363,7 +364,7 @@ class SGUMLPMixer(torch.nn.Module):
         num_blocks=1,
         activation="gelu",
         residual_weight=2,
-        learnable_residual=False
+        learnable_residual=False,
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -380,7 +381,11 @@ class SGUMLPMixer(torch.nn.Module):
         self.n_channels = token_features
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
-        self.residual_weight = torch.nn.Parameter(torch.tensor(residual_weight)) if learnable_residual else residual_weight
+        self.residual_weight = (
+            torch.nn.Parameter(torch.tensor(residual_weight))
+            if learnable_residual
+            else residual_weight
+        )
         self.token_embedding = torch.nn.Conv2d(
             patch_channels, self.n_channels, kernel_size=1
         )
