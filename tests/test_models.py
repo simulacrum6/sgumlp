@@ -9,6 +9,7 @@ from src.models import (
     SGUMLPBlock,
     DepthWiseConv2d,
     ParallelDepthwiseConv2d,
+    MixerClassificationHead,
 )
 
 
@@ -114,3 +115,13 @@ def test_dwc(hs_image):
 
     conv = ParallelDepthwiseConv2d(in_channels=c, kernel_sizes=[1, 3, 8])
     assert conv(hs_image).shape == hs_image.shape
+
+
+def test_MixerClassificationHead(tokens):
+    b, t, c = tokens.shape
+    k = 8
+    clf = MixerClassificationHead(c, k)
+    assert clf(tokens).shape == (b, k)
+    assert torch.all(torch.round(clf.predict_proba(tokens).sum(-1), decimals=2) == 1.00)
+    y = clf.predict(tokens)
+    assert torch.all(torch.lt(y, k) & torch.gt(y, 0))

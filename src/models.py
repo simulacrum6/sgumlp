@@ -413,3 +413,26 @@ class SGUMLPMixer(torch.nn.Module):
         for block in self.mixer_blocks:
             x = block(x)
         return x
+
+
+class MixerClassificationHead(torch.nn.Module):
+    def __init__(self, in_features, num_classes):
+        super().__init__()
+        self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
+        self.fc = torch.nn.Linear(in_features, num_classes)
+
+    def forward(self, x):
+        x = self.avg_pool_tokens(x.transpose(-1, -2)).transpose(-1, -2).squeeze()
+        return self.fc(x)
+
+    def predict(self, x):
+        return torch.argmax(self.forward(x), dim=-1).long()
+
+    def predict_proba(self, x):
+        return torch.softmax(self.forward(x), dim=-1)
+
+    def predict_log_proba(self, x):
+        return torch.log_softmax(self.forward(x), dim=-1)
+
+    def predict_logits(self, x):
+        return self.forward(x)
