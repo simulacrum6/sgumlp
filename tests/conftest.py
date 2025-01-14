@@ -22,3 +22,9 @@ def image_and_labels():
 @pytest.fixture
 def patches():
     return torch.randn(768, 9, 9, 32)
+
+@pytest.fixture
+def dataset():
+    X = torch.randn(512, 256, 32)
+    y = torch.randint(0, 10, (512,)).long()
+    return X, y
