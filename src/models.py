@@ -365,6 +365,7 @@ class SGUMLPMixer(torch.nn.Module):
         activation="gelu",
         residual_weight=2,
         learnable_residual=False,
+        embedding_kernel_size=1,
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -377,7 +378,9 @@ class SGUMLPMixer(torch.nn.Module):
             raise ValueError("Patch height must be odd")
 
         self.patch_size = patch_height
-        self.n_tokens = patch_height * patch_width
+        self.embedding_kernel_size = embedding_kernel_size
+        self.embedding_patch_size = patch_height - embedding_kernel_size + 1
+        self.n_tokens = self.embedding_patch_size * self.embedding_patch_size
         self.n_channels = token_features
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
@@ -387,7 +390,10 @@ class SGUMLPMixer(torch.nn.Module):
             else residual_weight
         )
         self.token_embedding = torch.nn.Conv2d(
-            patch_channels, self.n_channels, kernel_size=1
+            patch_channels,
+            self.n_channels,
+            kernel_size=embedding_kernel_size,
+            padding="valid",
         )
         self.mixer_blocks = torch.nn.ModuleList()
         for _ in range(num_blocks):
@@ -465,6 +471,7 @@ class LCLFModel(L.LightningModule):
         y_hat = self.forward(x)
         loss = self.loss(y_hat, y)
         self.log("val_loss", loss)
+        return loss
 
     def configure_optimizers(self):
         return self.optimizer_cls(self.parameters(), self.lr)

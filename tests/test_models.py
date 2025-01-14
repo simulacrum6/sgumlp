@@ -57,6 +57,19 @@ def test_SGUMLPMixer(patches):
     )
     y = mixer(patches)
 
+    mixer = SGUMLPMixer(
+        patches.shape[1:],
+        token_features=256,
+        mixer_features_channel=768,
+        mixer_features_sequence=768,
+        num_blocks=2,
+        activation="relu",
+        residual_weight=1.0,
+        learnable_residual=True,
+        embedding_kernel_size=8,
+    )
+    y = mixer(patches)
+
 
 def test_SGU(tokens):
     b, t, c = tokens.shape
