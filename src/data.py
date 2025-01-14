@@ -13,16 +13,19 @@ def _load_matrix(fp: Path | str):
     fp = Path(fp)
     return sio.loadmat(str(fp))[fp.stem]
 
+
 def _load_image(fp: Path | str):
     fp = Path(fp)
     return np.array(Image.open(fp))
 
+
 def _load_annotations(fp: Path | str):
     fp = Path(fp)
-    if fp.suffix == '.mat':
+    if fp.suffix == ".mat":
         return _load_matrix(Path(fp))
     else:
         return _load_image(Path(fp))
+
 
 def _load_feature(fp: Path | str):
     fp = Path(fp)
@@ -34,12 +37,13 @@ def _load_feature(fp: Path | str):
 
     return Feature(name, matrix)
 
+
 def patchify(
     image: np.ndarray,
     labels=None,
     patch_size: int = 9,
     pad_value=0,
-    mask_value=0,
+    na_value=0,
     only_valid=True,
 ):
     """Extract square patches centered on each pixel of a 2D or N-D image array.
@@ -48,16 +52,16 @@ def patchify(
         image: Input array of shape (H, W, ...) where H and W are spatial dimensions.
             Additional dimensions after the first two are preserved as features.
         labels: Label array of shape (H, W). When provided with only_valid=True, patches
-            will only be extracted for pixels that have labels (where labels != mask_value).
+            will only be extracted for pixels that have labels (where labels != na_value).
             Defaults to None.
         patch_size: Width and height of patches. Must be odd to ensure patches are centered.
             Defaults to 9.
         pad_value: Value used to pad borders of image before extracting patches.
             Defaults to 0.
-        mask_value: Value in labels array that indicates pixels without a valid label.
+        na_value: Value in labels array that indicates pixels without a valid label.
             Defaults to 0.
         only_valid: If True and labels is provided, only extract patches centered on labeled
-            pixels (where labels != mask_value). If False or labels=None, extract patches
+            pixels (where labels != na_value). If False or labels=None, extract patches
             for all pixels. Defaults to True.
 
     Returns:
@@ -65,11 +69,11 @@ def patchify(
             patches: Extracted patches with shape:
                 - (N, patch_size, patch_size, ...) if only_valid=True and labels provided,
                   where N is number of labeled pixels
-                - (H*W, patch_size, patch_size, ...) otherwise,
-                  where H*W is total number of pixels
+                - (H*W, patch_size, patch_size, ...) otherwise.
             labels: If labels provided, returns corresponding label for each patch:
-                - Shape (N,) if only_valid=True
-                - Shape (H*W,) otherwise
+                - (N,) if only_valid=True and labels provided,
+                  where N is number of labeled pixels
+                - (H*W,) otherwise.
                 If labels=None, returns None
 
     Raises:
@@ -116,11 +120,13 @@ def patchify(
 
     # filter for valid pixels and reshape
     if (labels is not None) and only_valid:
-        i, j = np.where(labels != mask_value)
+        i, j = np.where(labels != na_value)
         image = image[i, j, ...]
         labels = labels[i, j]
     else:
         image = image.reshape(-1, *image.shape[2:])
+        if labels is not None:
+            labels = labels.reshape(-1)
 
     return image, labels
 
@@ -156,12 +162,21 @@ class Feature:
 
 
 class Dataset:
-    def __init__(self, name: str, features: typing.Sequence[Feature], labels_train, labels_test=None, config: DatasetConfig | None=None):
+    def __init__(
+        self,
+        name: str,
+        features: typing.Sequence[Feature],
+        labels_train,
+        labels_test=None,
+        config: DatasetConfig | None = None,
+    ):
         self.name = name
         self.features = {feature.name: feature for feature in features}
         self.labels_train = labels_train
         self.labels_test = labels_test
-        self.image_dimensions = features[0].data.shape[:2] # todo: make sure this is the same for all features
+        self.image_dimensions = features[0].data.shape[
+            :2
+        ]  # todo: make sure this is the same for all features
         self.config = config
 
     def data(self, features: list[str] | None = None, missing_value=0):
@@ -176,7 +191,8 @@ class Dataset:
             feat = self.feature(feature)
             if feat is None:
                 print(
-                    f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).')
+                    f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).'
+                )
                 feature_map.append(np.full((h, w, 1), missing_value))
                 current_channel += 1
             else:
@@ -192,9 +208,15 @@ class Dataset:
     def from_config(cls, config: DatasetConfig):
         base_path = Path(config.base_dir)
 
-        features = [_load_feature(base_path / file_name) for file_name in config.feature_files]
+        features = [
+            _load_feature(base_path / file_name) for file_name in config.feature_files
+        ]
         labels_train = _load_annotations(base_path / config.labels_file)
-        labels_test = _load_annotations(base_path / config.labels_file_test) if config.labels_file_test else None
+        labels_test = (
+            _load_annotations(base_path / config.labels_file_test)
+            if config.labels_file_test
+            else None
+        )
 
         return cls(
             name=config.name,
@@ -209,7 +231,9 @@ class Dataset:
         return cls.from_config(DatasetConfig.from_json(json_path))
 
 
-def reduce_dimensions(data: np.ndarray, num_components=15, valid_indices=None, return_pca=False):
+def reduce_dimensions(
+    data: np.ndarray, num_components=15, valid_indices=None, return_pca=False
+):
     X = np.array(data)
     h, w, c = X.shape
 
@@ -238,13 +262,13 @@ def preprocess(dataset: Dataset):
     train_indices = labels_train != 0
 
     hs_pca, pca = reduce_dimensions(hs, n_components, train_indices, return_pca=True)
-    name = 'data_HS_LR_pca15'
+    name = "data_HS_LR_pca15"
     dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
     features = [
-        'data_DSM',
-        'data_HS_LR_pca15',
-        'data_SAR_HR',
+        "data_DSM",
+        "data_HS_LR_pca15",
+        "data_SAR_HR",
     ]
     image = dataset.data(features)
 
