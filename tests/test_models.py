@@ -9,7 +9,8 @@ from src.models import (
     SGUMLPBlock,
     DepthWiseConv2d,
     ParallelDepthwiseConv2d,
-    MixerClassificationHead,
+    Classifier,
+    LCLFModel
 )
 
 
@@ -117,11 +118,31 @@ def test_dwc(hs_image):
     assert conv(hs_image).shape == hs_image.shape
 
 
-def test_MixerClassificationHead(tokens):
+def test_Classifier(tokens):
     b, t, c = tokens.shape
     k = 8
-    clf = MixerClassificationHead(c, k)
+    clf = Classifier(num_classes=k, in_features=c)
     assert clf(tokens).shape == (b, k)
     assert torch.all(torch.round(clf.predict_proba(tokens).sum(-1), decimals=2) == 1.00)
     y = clf.predict(tokens)
-    assert torch.all(torch.lt(y, k) & torch.gt(y, 0))
+    assert torch.all(torch.lt(y, k) & torch.ge(y, 0))
+
+
+def test_Classifier_with_model(tokens):
+    b, t, c = tokens.shape
+    k = 8
+    d_ffn = 768
+    model = torch.nn.Sequential(
+        torch.nn.Linear(c, d_ffn),
+        torch.nn.ReLU(),
+        torch.nn.Linear(d_ffn, d_ffn),
+    )
+    clf = Classifier(k, d_ffn, model)
+    assert clf(tokens).shape == (b, k)
+
+def test_LCLFModel(tokens):
+    b, t, c = tokens.shape
+    k = 8
+    model = torch.nn.Linear(c, k)
+    clf = LCLFModel(model=model)
+    assert clf(tokens).shape == (b, t, k)

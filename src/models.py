@@ -1,5 +1,5 @@
 import torch
-
+import lightning as L
 
 activations = {
     "gelu": torch.nn.GELU,
@@ -415,15 +415,17 @@ class SGUMLPMixer(torch.nn.Module):
         return x
 
 
-class MixerClassificationHead(torch.nn.Module):
-    def __init__(self, in_features, num_classes):
+class Classifier(torch.nn.Module):
+    def __init__(self, num_classes, in_features, model=None):
         super().__init__()
+        self.model = model if model is not None else torch.nn.Identity()
         self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
-        self.fc = torch.nn.Linear(in_features, num_classes)
+        self.head = torch.nn.Linear(in_features, num_classes)
 
     def forward(self, x):
+        x = self.model(x)
         x = self.avg_pool_tokens(x.transpose(-1, -2)).transpose(-1, -2).squeeze()
-        return self.fc(x)
+        return self.head(x)
 
     def predict(self, x):
         return torch.argmax(self.forward(x), dim=-1).long()
@@ -436,3 +438,33 @@ class MixerClassificationHead(torch.nn.Module):
 
     def predict_logits(self, x):
         return self.forward(x)
+
+
+class LCLFModel(L.LightningModule):
+    def __init__(self, model, loss=torch.nn.CrossEntropyLoss, optimizer=torch.optim.Adam, lr=1e-3):
+        super().__init__()
+        self.model = model
+        self.loss = loss()
+        self.optimizer_cls = optimizer
+        self.lr = lr
+
+    def forward(self, x):
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = self.loss(y_hat, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = self.loss(y_hat, y)
+        self.log("val_loss", loss)
+
+    def configure_optimizers(self):
+        return self.optimizer_cls(self.parameters(), self.lr)
+
+
