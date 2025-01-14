@@ -4,7 +4,7 @@ from pathlib import Path
 import scipy.io as sio
 import numpy as np
 import typing
-
+from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
 
@@ -12,6 +12,17 @@ from sklearn.decomposition import PCA
 def _load_matrix(fp: Path | str):
     fp = Path(fp)
     return sio.loadmat(str(fp))[fp.stem]
+
+def _load_image(fp: Path | str):
+    fp = Path(fp)
+    return np.array(Image.open(fp))
+
+def _load_annotations(fp: Path | str):
+    fp = Path(fp)
+    if fp.suffix == '.mat':
+        return _load_matrix(Path(fp))
+    else:
+        return _load_image(Path(fp))
 
 def _load_feature(fp: Path | str):
     fp = Path(fp)
@@ -182,8 +193,8 @@ class Dataset:
         base_path = Path(config.base_dir)
 
         features = [_load_feature(base_path / file_name) for file_name in config.feature_files]
-        labels_train = _load_matrix(base_path / config.labels_file)
-        labels_test = _load_matrix(base_path / config.labels_file_test) if config.labels_file_test else None
+        labels_train = _load_annotations(base_path / config.labels_file)
+        labels_test = _load_annotations(base_path / config.labels_file_test) if config.labels_file_test else None
 
         return cls(
             name=config.name,
@@ -243,9 +254,13 @@ def preprocess(dataset: Dataset):
 
 
 if __name__ == "__main__":
-    json_path = ".berlin.json"
+    json_path = "data/.berlin.json"
     cfg = DatasetConfig.from_json(json_path)
     dataset = Dataset.from_json(json_path)
     X_train, X_test, y_train, y_test = preprocess(dataset)
 
-
+    json_path = "data/.houston.json"
+    cfg = DatasetConfig.from_json(json_path)
+    dataset = Dataset.from_json(json_path)
+    dataset.labels_train
+    X_train, X_test, y_train, y_test = preprocess(dataset)
