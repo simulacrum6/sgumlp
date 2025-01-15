@@ -96,15 +96,8 @@ def patchify(
     offset = patch_size // 2
 
     image = np.array(image, copy=True)
-    labels = np.array(labels, copy=True) if labels is not None else None
-
     if image.ndim < 2:
         raise ValueError("image must have at least 2 dimensions")
-
-    if (labels is not None) and (image.shape[:2] != labels.shape[:2]):
-        raise ValueError(
-            "first two dimensions of image and labels must have the same shape"
-        )
 
     # configure sliding windows
     pad_width = [(offset, offset), (offset, offset)]
@@ -121,19 +114,7 @@ def patchify(
         image, pad_width=pad_width, mode="constant", constant_values=pad_value
     )
     image = sliding_window_view(image, window_shape=window_shape).squeeze()
-
-    # filter for valid pixels and reshape
-    if (labels is not None) and only_valid:
-        i, j = np.where(labels != na_value)
-        image = image[i, j, ...]
-        labels = labels[i, j]
-    else:
-        image = image.reshape(-1, *image.shape[2:])
-        if labels is not None:
-            labels = labels.reshape(-1)
-
-    return image, labels
-
+    return image
 
 @dataclass
 class DatasetConfig:
@@ -214,7 +195,7 @@ class Dataset:
         feature_map = np.concatenate(feature_map, axis=-1)
 
         if split is not None:
-            _, mask = self.labels(split)
+            mask = self.split_mask(split)
             return feature_map[mask]
 
         return feature_map
@@ -223,9 +204,16 @@ class Dataset:
         return self.features.get(name)
 
     def labels(self, split='train'):
-        labels = self.labels_train if split == 'train' else self.labels_test
-        mask = labels != self.na_value
-        return self._label_encoder.transform(labels[mask].ravel()), mask
+        return self.labels_train if split == 'train' else self.labels_test
+
+    def split_mask(self, split='train'):
+        labels = self.labels(split)
+        return labels != self.na_value
+
+    def targets(self, split='train'):
+        labels = self.labels(split)
+        mask = self.split_mask(split)
+        return self._label_encoder.transform(labels[mask])
 
     def label_to_id(self, labels):
         return self._label_encoder.transform(labels)
@@ -282,15 +270,13 @@ def reduce_dimensions(
 
 
 def preprocess(dataset: Dataset, dtype=np.float32):
-    labels_train = dataset.labels_train
-    labels_test = dataset.labels_test
-
     hs_feat = dataset.feature("data_HS_LR")
     hs = hs_feat.data
     n_components = 15
-    train_indices = labels_train != 0
+    train_mask = dataset.split_mask("train")
+    test_mask = dataset.split_mask("test")
 
-    hs_pca, pca = reduce_dimensions(hs, n_components, train_indices, return_pca=True)
+    hs_pca, pca = reduce_dimensions(hs, n_components, train_mask, return_pca=True)
     name = "data_HS_LR_pca15"
     dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
@@ -301,13 +287,17 @@ def preprocess(dataset: Dataset, dtype=np.float32):
     ]
     image = dataset.data(features)
 
-    X_train, y_train = patchify(image, labels_train, na_value=dataset.na_value)
-    X_test, y_test = patchify(image, labels_test, na_value=dataset.na_value)
+    X = patchify(image)
+    X_train = X[train_mask].astype(dtype)
+    X_test = X[test_mask].astype(dtype)
+    y_train = dataset.targets('train')
+    y_test = dataset.targets('test')
+
     return (
-        X_train.astype(dtype),
-        X_test.astype(dtype),
-        dataset.label_to_id(y_train),
-        dataset.label_to_id(y_test),
+        X_train,
+        X_test,
+        y_train,
+        y_test,
     )
 
 
