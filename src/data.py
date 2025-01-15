@@ -178,6 +178,9 @@ class Dataset:
             :2
         ]  # todo: make sure this is the same for all features
         self.config = config
+        self.num_labels = np.unique(labels_train).shape[
+            0
+        ]  # todo: add to config with label map
 
     def data(self, features: list[str] | None = None, missing_value=0):
         h, w = self.image_dimensions
@@ -227,7 +230,7 @@ class Dataset:
         )
 
     @classmethod
-    def from_json(cls, json_path: str):
+    def from_json(cls, json_path: str | Path):
         return cls.from_config(DatasetConfig.from_json(json_path))
 
 
@@ -252,7 +255,7 @@ def reduce_dimensions(
     return X_reduced
 
 
-def preprocess(dataset: Dataset):
+def preprocess(dataset: Dataset, dtype=np.float32):
     labels_train = dataset.labels_train
     labels_test = dataset.labels_test
 
@@ -274,7 +277,12 @@ def preprocess(dataset: Dataset):
 
     X_train, y_train = patchify(image, labels_train)
     X_test, y_test = patchify(image, labels_test)
-    return X_train, X_test, y_train, y_test
+    return (
+        X_train.astype(dtype),
+        X_test.astype(dtype),
+        y_train.astype(np.long) - 1,
+        y_test.astype(np.long) - 1,
+    )  # todo: more robust extraction
 
 
 if __name__ == "__main__":
