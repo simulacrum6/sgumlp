@@ -10,7 +10,7 @@ from src.models import (
     DepthWiseConv2d,
     ParallelDepthwiseConv2d,
     Classifier,
-    LCLFModel,
+    LitSGUMLPMixer,
 )
 
 
@@ -30,45 +30,35 @@ def test_MLPMixer(hs_image):
     assert torch.all(torch.eq(out_shape, expected_shape))
 
 
-def test_SGUMLPMixer(patches):
+def test_SGUMLPMixer(patches, sgumlpmixer_args):
+    b, *patch_dimensions = patches.shape
     mixer = SGUMLPMixer(
-        patches.shape[1:],
-        token_features=256,
-        mixer_features_channel=768,
-        mixer_features_sequence=768,
-        num_blocks=2,
-        activation="relu",
+        patch_dimensions,
+        **sgumlpmixer_args,
     )
     y = mixer(patches)
     out_shape = torch.tensor(y.shape)
     expected_shape = torch.tensor([patches.shape[0], mixer.n_tokens, mixer.n_channels])
-    assert torch.all(torch.eq(out_shape, expected_shape))
-
-    # learnable residuals
-    mixer = SGUMLPMixer(
-        patches.shape[1:],
-        token_features=256,
-        mixer_features_channel=768,
-        mixer_features_sequence=768,
-        num_blocks=2,
-        activation="relu",
-        residual_weight=1.0,
-        learnable_residual=True,
-    )
-    y = mixer(patches)
+    assert y.shape == (b, mixer.n_tokens, mixer.n_channels)
 
     mixer = SGUMLPMixer(
-        patches.shape[1:],
-        token_features=256,
-        mixer_features_channel=768,
-        mixer_features_sequence=768,
-        num_blocks=2,
-        activation="relu",
+        patch_dimensions,
         residual_weight=1.0,
         learnable_residual=True,
         embedding_kernel_size=8,
+        **sgumlpmixer_args
     )
     y = mixer(patches)
+
+    n_classes = 12
+    mixer = SGUMLPMixer(
+        patch_dimensions,
+        num_classes=n_classes,
+        ** sgumlpmixer_args,
+    )
+    y = mixer(patches)
+    assert y.shape == (b, n_classes)
+
 
 
 def test_SGU(tokens):
@@ -136,27 +126,23 @@ def test_Classifier(tokens):
     k = 8
     clf = Classifier(num_classes=k, in_features=c)
     assert clf(tokens).shape == (b, k)
-    assert torch.all(torch.round(clf.predict_proba(tokens).sum(-1), decimals=2) == 1.00)
-    y = clf.predict(tokens)
-    assert torch.all(torch.lt(y, k) & torch.ge(y, 0))
 
 
-def test_Classifier_with_model(tokens):
-    b, t, c = tokens.shape
+def test_LitSGUMLPMixer(patches, sgumlpmixer_args, adamw_args):
+    b, p, p, c = patches.shape
     k = 8
-    d_ffn = 768
-    model = torch.nn.Sequential(
-        torch.nn.Linear(c, d_ffn),
-        torch.nn.ReLU(),
-        torch.nn.Linear(d_ffn, d_ffn),
+
+    sgu_params = dict(
+        input_dimensions=(p, p, c),
+        num_classes=k,
+        **sgumlpmixer_args,
     )
-    clf = Classifier(k, d_ffn, model)
-    assert clf(tokens).shape == (b, k)
-
-
-def test_LCLFModel(tokens):
-    b, t, c = tokens.shape
-    k = 8
-    model = torch.nn.Linear(c, k)
-    clf = LCLFModel(model=model)
-    assert clf(tokens).shape == (b, t, k)
+    model = LitSGUMLPMixer(
+        model_params=sgu_params,
+        optimizer_params=adamw_args,
+        meta_data = { 'foo': 'bar' }
+    )
+    assert model(patches).shape == (b, k)
+    assert model.hparams['model_params'].keys() == sgu_params.keys()
+    assert model.hparams['optimizer_params'].keys() == adamw_args.keys()
+    assert 'foo' in model.hparams['meta_data'].keys()

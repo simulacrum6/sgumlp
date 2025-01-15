@@ -1,5 +1,5 @@
 import torch
-import lightning as L
+import lightning
 
 activations = {
     "gelu": torch.nn.GELU,
@@ -324,6 +324,17 @@ class MLPMixer(torch.nn.Module):
         return x
 
 
+class Classifier(torch.nn.Module):
+    def __init__(self, num_classes, in_features):
+        super().__init__()
+        self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
+        self.clf = torch.nn.Linear(in_features, num_classes)
+
+    def forward(self, x):
+        x = self.avg_pool_tokens(x.transpose(-1, -2)).transpose(-1, -2).squeeze()
+        return self.clf(x)
+
+
 class SGUMLPMixer(torch.nn.Module):
     """
     MLP-Mixer variant using Spatial Gated Units (SGU) and parallel depthwise convolutions with residual connections.
@@ -366,6 +377,7 @@ class SGUMLPMixer(torch.nn.Module):
         residual_weight=2,
         learnable_residual=False,
         embedding_kernel_size=1,
+        num_classes=0,
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -395,18 +407,17 @@ class SGUMLPMixer(torch.nn.Module):
             kernel_size=embedding_kernel_size,
             padding="valid",
         )
-        self.mixer_blocks = torch.nn.ModuleList()
-        for _ in range(num_blocks):
-            self.mixer_blocks.append(
-                MLPMixerBlock(
-                    in_features=self.n_channels,
-                    sequence_length=self.n_tokens,
-                    hidden_features_channel=mixer_features_channel,
-                    hidden_features_sequence=mixer_features_sequence,
-                    activation=activation,
-                    mlp_block="sgu",
-                )
-            )
+        self.mixer_blocks = torch.nn.Sequential(
+            *[MLPMixerBlock(
+                in_features=self.n_channels,
+                sequence_length=self.n_tokens,
+                hidden_features_channel=mixer_features_channel,
+                hidden_features_sequence=mixer_features_sequence,
+                activation=activation,
+                mlp_block="sgu",
+            ) for _ in range(num_blocks)]
+        )
+        self.head = Classifier(num_classes, self.n_channels) if num_classes > 0 else torch.nn.Identity()
 
     def forward(self, x):
         b = x.shape[0]
@@ -416,45 +427,22 @@ class SGUMLPMixer(torch.nn.Module):
         x = x + (residual * self.residual_weight)
         x = self.token_embedding(x)
         x = x.reshape(b, self.n_channels, self.n_tokens).transpose(1, 2)
-        for block in self.mixer_blocks:
-            x = block(x)
+        x = self.mixer_blocks(x)
+        x = self.head(x)
         return x
 
 
-class Classifier(torch.nn.Module):
-    def __init__(self, num_classes, in_features, model=None):
-        super().__init__()
-        self.model = model if model is not None else torch.nn.Identity()
-        self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
-        self.head = torch.nn.Linear(in_features, num_classes)
-
-    def forward(self, x):
-        x = self.model(x)
-        x = self.avg_pool_tokens(x.transpose(-1, -2)).transpose(-1, -2).squeeze()
-        return self.head(x)
-
-    def predict(self, x):
-        return torch.argmax(self.forward(x), dim=-1).long()
-
-    def predict_proba(self, x):
-        return torch.softmax(self.forward(x), dim=-1)
-
-    def predict_log_proba(self, x):
-        return torch.log_softmax(self.forward(x), dim=-1)
-
-    def predict_logits(self, x):
-        return self.forward(x)
-
-
-class LCLFModel(L.LightningModule):
+class LitSGUMLPMixer(lightning.LightningModule):
     def __init__(
-        self, model, loss=torch.nn.CrossEntropyLoss, optimizer=torch.optim.Adam, lr=1e-3
+        self, model_params, optimizer_params, *args, **kwargs
     ):
         super().__init__()
-        self.model = model
-        self.loss = loss()
-        self.optimizer_cls = optimizer
-        self.lr = lr
+        self.save_hyperparameters()
+
+        self.model = SGUMLPMixer(**model_params)
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.optimizer_cls = torch.optim.AdamW
+
 
     def forward(self, x):
         return self.model(x)
@@ -462,16 +450,22 @@ class LCLFModel(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.forward(x)
-        loss = self.loss(y_hat, y)
+        loss = self.criterion(y_hat, y)
         self.log("train_loss", loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def _test_val_step(self, batch, batch_idx, split):
         x, y = batch
         y_hat = self.forward(x)
-        loss = self.loss(y_hat, y)
-        self.log("val_loss", loss)
+        loss = self.criterion(y_hat, y)
+        self.log(f"{split}_loss", loss)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        return self._test_val_step(batch, batch_idx, "val")
+
+    def test_step(self, batch, batch_idx):
+        return self._test_val_step(batch, batch_idx, "test")
+
     def configure_optimizers(self):
-        return self.optimizer_cls(self.parameters(), self.lr)
+        return self.optimizer_cls(self.model.parameters(), **self.hparams.optimizer_params)

@@ -4,7 +4,7 @@ import sklearn
 from sklearn.model_selection import KFold
 
 from data import Dataset, preprocess
-from models import Classifier, SGUMLPMixer
+from models import SGUMLPMixer
 import torch
 import numpy as np
 import random
@@ -62,7 +62,7 @@ def reproduction():
     ]
 
     def prepare_model_and_optimizer():
-        mixer = SGUMLPMixer(
+        model = SGUMLPMixer(
             input_dimensions=X_train.shape[1:],
             token_features=256,
             mixer_features_channel=256,
@@ -73,15 +73,13 @@ def reproduction():
             residual_weight=2,
             learnable_residual=False,
             embedding_kernel_size=4,
+            num_classes=n_classes,
         )
-        clf = Classifier(
-            num_classes=n_classes, in_features=mixer.n_channels, model=mixer
-        )
-        clf.to(device=device)
+        model.to(device)
         optimizer = torch.optim.Adam(
-            clf.parameters(), lr=learning_rate, weight_decay=weight_decay
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
-        return clf, optimizer
+        return model, optimizer
 
     def get_dataloaders(train_idx, val_idx):
         train_loader = torch.utils.data.DataLoader(

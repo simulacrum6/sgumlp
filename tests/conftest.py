@@ -26,6 +26,29 @@ def patches():
 
 @pytest.fixture
 def dataset():
-    X = torch.randn(512, 256, 32)
-    y = torch.randint(0, 10, (512,)).long()
-    return X, y
+    n = 64
+    p = 17
+    c = 32
+    k = 10
+    X = torch.randn(n, p, p, c)
+    y = torch.randint(0, k, (n,)).long()
+    return X, y, k
+
+@pytest.fixture
+def sgumlpmixer_args():
+    return dict(
+        token_features=256,
+        mixer_features_channel=768,
+        mixer_features_sequence=768,
+        num_blocks=2,
+        activation="relu",
+    )
+
+@pytest.fixture
+def adamw_args():
+    return dict(
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0.01,
+    )
