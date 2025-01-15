@@ -41,7 +41,7 @@ def reproduction():
         torch.from_numpy(X_test), torch.from_numpy(y_test)
     )
 
-    n_classes = dataset.num_labels - 1  # 0 is invalid label #fixme
+    n_classes = dataset.num_labels
     n_epochs = 100
     n_folds = 5
     weight_decay = 0.0001

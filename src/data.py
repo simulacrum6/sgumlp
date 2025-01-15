@@ -4,6 +4,8 @@ from pathlib import Path
 import scipy.io as sio
 import numpy as np
 import typing
+
+import sklearn
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
@@ -19,7 +21,7 @@ def _load_image(fp: Path | str):
     return np.array(Image.open(fp))
 
 
-def _load_annotations(fp: Path | str):
+def _load_source(fp: Path | str):
     fp = Path(fp)
     if fp.suffix == ".mat":
         return _load_matrix(Path(fp))
@@ -37,6 +39,8 @@ def _load_feature(fp: Path | str):
 
     return Feature(name, matrix)
 
+def _is_valid(a, na_value):
+    return a != na_value
 
 def patchify(
     image: np.ndarray,
@@ -169,20 +173,25 @@ class Dataset:
         labels_train,
         labels_test=None,
         config: DatasetConfig | None = None,
+        na_value=0,
     ):
         self.name = name
         self.features = {feature.name: feature for feature in features}
         self.labels_train = labels_train
         self.labels_test = labels_test
-        self.image_dimensions = features[0].data.shape[
-            :2
-        ]  # todo: make sure this is the same for all features
+        self.image_dimensions = features[0].data.shape[:2]
+        self.na_value = na_value
+        for feature in features:
+            if feature.data.shape[:2] != self.image_dimensions:
+                raise ValueError('All features must have same image dimensions (0 and 1)')
         self.config = config
-        self.num_labels = np.unique(labels_train).shape[
-            0
-        ]  # todo: add to config with label map
 
-    def data(self, features: list[str] | None = None, missing_value=0):
+        self._label_encoder = sklearn.preprocessing.LabelEncoder()
+        mask = _is_valid(self.labels_train, self.na_value)
+        self._label_encoder.fit(self.labels_train[mask].ravel())
+        self.num_labels = len(self._label_encoder.classes_)
+
+    def data(self, features: list[str] | None = None, split=None):
         h, w = self.image_dimensions
 
         if features is None:
@@ -194,18 +203,35 @@ class Dataset:
             feat = self.feature(feature)
             if feat is None:
                 print(
-                    f'Feature "{feature}" not in dataset. Adding missing values ({missing_value} at channel {current_channel}).'
+                    f'Feature "{feature}" not in dataset. Adding na_values ({self.na_value} at channel {current_channel}).'
                 )
-                feature_map.append(np.full((h, w, 1), missing_value))
+                feature_map.append(np.full((h, w, 1), self.na_value))
                 current_channel += 1
             else:
                 feature_map.append(feat.data)
                 current_channel += feat.size
 
-        return np.concatenate(feature_map, axis=-1)
+        feature_map = np.concatenate(feature_map, axis=-1)
+
+        if split is not None:
+            _, mask = self.labels(split)
+            return feature_map[mask]
+
+        return feature_map
 
     def feature(self, name):
         return self.features.get(name)
+
+    def labels(self, split='train'):
+        labels = self.labels_train if split == 'train' else self.labels_test
+        mask = labels != self.na_value
+        return self._label_encoder.transform(labels[mask].ravel()), mask
+
+    def label_to_id(self, labels):
+        return self._label_encoder.transform(labels)
+
+    def id_to_label(self, ids):
+        return self._label_encoder.inverse_transform(ids)
 
     @classmethod
     def from_config(cls, config: DatasetConfig):
@@ -214,9 +240,9 @@ class Dataset:
         features = [
             _load_feature(base_path / file_name) for file_name in config.feature_files
         ]
-        labels_train = _load_annotations(base_path / config.labels_file)
+        labels_train = _load_source(base_path / config.labels_file)
         labels_test = (
-            _load_annotations(base_path / config.labels_file_test)
+            _load_source(base_path / config.labels_file_test)
             if config.labels_file_test
             else None
         )
@@ -275,14 +301,14 @@ def preprocess(dataset: Dataset, dtype=np.float32):
     ]
     image = dataset.data(features)
 
-    X_train, y_train = patchify(image, labels_train)
-    X_test, y_test = patchify(image, labels_test)
+    X_train, y_train = patchify(image, labels_train, na_value=dataset.na_value)
+    X_test, y_test = patchify(image, labels_test, na_value=dataset.na_value)
     return (
         X_train.astype(dtype),
         X_test.astype(dtype),
-        y_train.astype(np.long) - 1,
-        y_test.astype(np.long) - 1,
-    )  # todo: more robust extraction
+        dataset.label_to_id(y_train),
+        dataset.label_to_id(y_test),
+    )
 
 
 if __name__ == "__main__":
