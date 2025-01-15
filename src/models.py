@@ -124,10 +124,12 @@ class MLPBlock(torch.nn.Module):
         sequence_length=None,
         activation="gelu",
         out_features=None,
+        dropout=0.0,
     ):
         super().__init__()
         if out_features is None:
             out_features = in_features
+        self.dropout = torch.nn.Dropout(dropout)
         self.mlp1 = torch.nn.Linear(in_features, hidden_features)
         self.activation = activations.get(activation, torch.nn.GELU)()
         self.mlp2 = torch.nn.Linear(hidden_features, out_features)
@@ -135,7 +137,9 @@ class MLPBlock(torch.nn.Module):
     def forward(self, x):
         x = self.mlp1(x)
         x = self.activation(x)
+        x = self.dropout(x)
         x = self.mlp2(x)
+        x = self.dropout(x)
         return x
 
 
@@ -164,10 +168,12 @@ class SGUMLPBlock(torch.nn.Module):
         sequence_length,
         activation="gelu",
         out_features=None,
+        dropout=0.0,
     ):
         super().__init__()
         if out_features is None:
             out_features = in_features
+        self.dropout = torch.nn.Dropout(dropout)
         self.mlp1 = torch.nn.Linear(in_features, hidden_features)
         self.sgu = SpatialGatedUnit(hidden_features, sequence_length)
         self.activation = activations.get(activation, torch.nn.GELU)()
@@ -177,7 +183,9 @@ class SGUMLPBlock(torch.nn.Module):
         x = self.mlp1(x)
         x = self.sgu(x)
         x = self.activation(x)
+        x = self.dropout(x)
         x = self.mlp2(x)
+        x = self.dropout(x)
         return x
 
 
@@ -216,22 +224,26 @@ class MLPMixerBlock(torch.nn.Module):
         hidden_features_sequence,
         activation="gelu",
         mlp_block="mlp",
+        dropout=0.0,
     ):
         super().__init__()
         mlp_block = mlp_blocks.get(mlp_block, MLPBlock)
 
+        self.dropout = torch.nn.Dropout(dropout)
         self.layer_norm = torch.nn.LayerNorm([in_features])
         self.channel_mixer = mlp_block(
             in_features=in_features,
             hidden_features=hidden_features_channel,
             sequence_length=sequence_length,
             activation=activation,
+            dropout=dropout,
         )
         self.token_mixer = mlp_block(
             in_features=sequence_length,
             hidden_features=hidden_features_sequence,
             sequence_length=in_features,
             activation=activation,
+            dropout=dropout
         )
 
     def forward(self, x):
@@ -239,11 +251,13 @@ class MLPMixerBlock(torch.nn.Module):
 
         x = self.layer_norm(x).transpose(1, 2)
         x = self.token_mixer(x).transpose(1, 2)
+        x = self.dropout(x)
 
         residual = residual + x
 
         x = self.layer_norm(residual)
         x = self.channel_mixer(x)
+        x = self.dropout(x)
         return residual + x
 
 
@@ -325,13 +339,15 @@ class MLPMixer(torch.nn.Module):
 
 
 class Classifier(torch.nn.Module):
-    def __init__(self, num_classes, in_features):
+    def __init__(self, num_classes, in_features, dropout=0.0):
         super().__init__()
         self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
+        self.dropout = torch.nn.Dropout(dropout)
         self.clf = torch.nn.Linear(in_features, num_classes)
 
     def forward(self, x):
         x = self.avg_pool_tokens(x.transpose(-1, -2)).transpose(-1, -2).squeeze()
+        x = self.dropout(x)
         return self.clf(x)
 
 
@@ -378,6 +394,7 @@ class SGUMLPMixer(torch.nn.Module):
         learnable_residual=False,
         embedding_kernel_size=1,
         num_classes=0,
+        dropout=0.0,
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -394,6 +411,7 @@ class SGUMLPMixer(torch.nn.Module):
         self.embedding_patch_size = patch_height - embedding_kernel_size + 1
         self.n_tokens = self.embedding_patch_size * self.embedding_patch_size
         self.n_channels = token_features
+        self.dropout_rate = dropout
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
         self.residual_weight = (
@@ -415,9 +433,11 @@ class SGUMLPMixer(torch.nn.Module):
                 hidden_features_sequence=mixer_features_sequence,
                 activation=activation,
                 mlp_block="sgu",
+                dropout=self.dropout_rate,
             ) for _ in range(num_blocks)]
         )
-        self.head = Classifier(num_classes, self.n_channels) if num_classes > 0 else torch.nn.Identity()
+        self.head = Classifier(num_classes, self.n_channels, self.dropout_rate) if num_classes > 0 else torch.nn.Identity()
+
 
     def forward(self, x):
         b = x.shape[0]

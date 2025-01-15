@@ -74,6 +74,7 @@ def reproduction():
             learnable_residual=False,
             embedding_kernel_size=4,
             num_classes=n_classes,
+            dropout=dropout_rate,
         )
         model.to(device)
         optimizer = torch.optim.Adam(

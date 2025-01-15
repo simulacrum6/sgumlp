@@ -274,28 +274,32 @@ def reduce_dimensions(
     return X_reduced
 
 
-def preprocess(dataset: Dataset, dtype=np.float32):
+def preprocess(dataset: Dataset, image_dtype=np.float32, num_hs_components=15):
     train_mask = dataset.split_mask("train")
     test_mask = dataset.split_mask("test")
 
-    hs_feat = dataset.feature("data_HS_LR")
-    hs = hs_feat.data
-    n_components = 15
-    hs_pca, pca = reduce_dimensions(hs, n_components, train_mask, return_pca=True)
-    name = "data_HS_LR_pca15"
-    dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
+    if num_hs_components is not None:
+        hs_feat = dataset.feature("data_HS_LR")
+        hs = hs_feat.data
+        n_components = 15
+        hs_pca, pca = reduce_dimensions(hs, n_components, train_mask, return_pca=True)
+        name = "data_HS_LR_pca15"
+        dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
-    image = dataset.data(
-        [
-            "data_DSM",
-            "data_HS_LR_pca15",
-            "data_SAR_HR",
-        ]
-    )
+        image = dataset.data(
+            [
+                "data_DSM",
+                "data_HS_LR_pca15",
+                "data_SAR_HR",
+            ]
+        )
+    else:
+        image = dataset.data()
+
     X = patchify(image)
     return (
-        X[train_mask].astype(dtype),
-        X[test_mask].astype(dtype),
+        X[train_mask].astype(image_dtype),
+        X[test_mask].astype(image_dtype),
         dataset.targets("train"),
         dataset.targets("test"),
     )
