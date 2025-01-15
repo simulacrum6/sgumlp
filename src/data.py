@@ -1,10 +1,10 @@
 import json
+import typing
 from dataclasses import dataclass
 from pathlib import Path
-import scipy.io as sio
-import numpy as np
-import typing
 
+import numpy as np
+import scipy.io as sio
 import sklearn
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
@@ -39,8 +39,10 @@ def _load_feature(fp: Path | str):
 
     return Feature(name, matrix)
 
+
 def _is_valid(a, na_value):
     return a != na_value
+
 
 def patchify(
     image: np.ndarray,
@@ -116,6 +118,7 @@ def patchify(
     image = sliding_window_view(image, window_shape=window_shape).squeeze()
     return image
 
+
 @dataclass
 class DatasetConfig:
     name: str
@@ -164,7 +167,9 @@ class Dataset:
         self.na_value = na_value
         for feature in features:
             if feature.data.shape[:2] != self.image_dimensions:
-                raise ValueError('All features must have same image dimensions (0 and 1)')
+                raise ValueError(
+                    "All features must have same image dimensions (0 and 1)"
+                )
         self.config = config
 
         self._label_encoder = sklearn.preprocessing.LabelEncoder()
@@ -203,14 +208,14 @@ class Dataset:
     def feature(self, name):
         return self.features.get(name)
 
-    def labels(self, split='train'):
-        return self.labels_train if split == 'train' else self.labels_test
+    def labels(self, split="train"):
+        return self.labels_train if split == "train" else self.labels_test
 
-    def split_mask(self, split='train'):
+    def split_mask(self, split="train"):
         labels = self.labels(split)
         return labels != self.na_value
 
-    def targets(self, split='train'):
+    def targets(self, split="train"):
         labels = self.labels(split)
         mask = self.split_mask(split)
         return self._label_encoder.transform(labels[mask])
@@ -249,9 +254,9 @@ class Dataset:
 
 
 def reduce_dimensions(
-    data: np.ndarray, num_components=15, valid_indices=None, return_pca=False
+    image: np.ndarray, num_components=15, valid_indices=None, return_pca=False
 ):
-    X = np.array(data)
+    X = np.array(image, copy=True)
     h, w, c = X.shape
 
     if valid_indices is not None:
@@ -261,7 +266,7 @@ def reduce_dimensions(
         X = X.reshape(-1, c)
 
     pca = PCA(n_components=num_components, whiten=True).fit(X)
-    X_reduced = pca.transform(data.reshape(-1, c)).reshape(h, w, num_components)
+    X_reduced = pca.transform(image.reshape(-1, c)).reshape(h, w, num_components)
 
     if return_pca:
         return X_reduced, pca
@@ -270,34 +275,29 @@ def reduce_dimensions(
 
 
 def preprocess(dataset: Dataset, dtype=np.float32):
-    hs_feat = dataset.feature("data_HS_LR")
-    hs = hs_feat.data
-    n_components = 15
     train_mask = dataset.split_mask("train")
     test_mask = dataset.split_mask("test")
 
+    hs_feat = dataset.feature("data_HS_LR")
+    hs = hs_feat.data
+    n_components = 15
     hs_pca, pca = reduce_dimensions(hs, n_components, train_mask, return_pca=True)
     name = "data_HS_LR_pca15"
     dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
-    features = [
-        "data_DSM",
-        "data_HS_LR_pca15",
-        "data_SAR_HR",
-    ]
-    image = dataset.data(features)
-
+    image = dataset.data(
+        [
+            "data_DSM",
+            "data_HS_LR_pca15",
+            "data_SAR_HR",
+        ]
+    )
     X = patchify(image)
-    X_train = X[train_mask].astype(dtype)
-    X_test = X[test_mask].astype(dtype)
-    y_train = dataset.targets('train')
-    y_test = dataset.targets('test')
-
     return (
-        X_train,
-        X_test,
-        y_train,
-        y_test,
+        X[train_mask].astype(dtype),
+        X[test_mask].astype(dtype),
+        dataset.targets("train"),
+        dataset.targets("test"),
     )
 
 
