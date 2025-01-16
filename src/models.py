@@ -432,25 +432,21 @@ class LitSGUMLPMixer(lightning.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self.forward(x)
-        loss = self.criterion(y_hat, y)
-        self.log("train_loss", loss)
-        return loss
-
-    def _test_val_step(self, batch, batch_idx, split):
+    def _step(self, batch, batch_idx, split):
         x, y = batch
         y_hat = self.forward(x)
         loss = self.criterion(y_hat, y)
         self.log(f"{split}_loss", loss)
         return loss
 
+    def training_step(self, batch, batch_idx):
+        return self._step(batch, batch_idx, "train")
+
     def validation_step(self, batch, batch_idx):
-        return self._test_val_step(batch, batch_idx, "val")
+        return self._step(batch, batch_idx, "val")
 
     def test_step(self, batch, batch_idx):
-        return self._test_val_step(batch, batch_idx, "test")
+        return self._step(batch, batch_idx, "test")
 
     def configure_optimizers(self):
         return self.optimizer_cls(
