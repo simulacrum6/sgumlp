@@ -34,6 +34,7 @@ def dataset():
     y = torch.randint(0, k, (n,)).long()
     return X, y, k
 
+
 @pytest.fixture
 def sgumlpmixer_args():
     return dict(
@@ -43,6 +44,7 @@ def sgumlpmixer_args():
         num_blocks=2,
         activation="relu",
     )
+
 
 @pytest.fixture
 def adamw_args():

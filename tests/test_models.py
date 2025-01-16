@@ -46,7 +46,7 @@ def test_SGUMLPMixer(patches, sgumlpmixer_args):
         residual_weight=1.0,
         learnable_residual=True,
         embedding_kernel_size=8,
-        **sgumlpmixer_args
+        **sgumlpmixer_args,
     )
     y = mixer(patches)
 
@@ -54,11 +54,10 @@ def test_SGUMLPMixer(patches, sgumlpmixer_args):
     mixer = SGUMLPMixer(
         patch_dimensions,
         num_classes=n_classes,
-        ** sgumlpmixer_args,
+        **sgumlpmixer_args,
     )
     y = mixer(patches)
     assert y.shape == (b, n_classes)
-
 
 
 def test_SGU(tokens):
@@ -138,11 +137,9 @@ def test_LitSGUMLPMixer(patches, sgumlpmixer_args, adamw_args):
         **sgumlpmixer_args,
     )
     model = LitSGUMLPMixer(
-        model_params=sgu_params,
-        optimizer_params=adamw_args,
-        meta_data = { 'foo': 'bar' }
+        model_params=sgu_params, optimizer_params=adamw_args, meta_data={"foo": "bar"}
     )
     assert model(patches).shape == (b, k)
-    assert model.hparams['model_params'].keys() == sgu_params.keys()
-    assert model.hparams['optimizer_params'].keys() == adamw_args.keys()
-    assert 'foo' in model.hparams['meta_data'].keys()
+    assert model.hparams["model_params"].keys() == sgu_params.keys()
+    assert model.hparams["optimizer_params"].keys() == adamw_args.keys()
+    assert "foo" in model.hparams["meta_data"].keys()

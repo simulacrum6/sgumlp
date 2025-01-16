@@ -9,7 +9,10 @@ def test_model_training(dataset, sgumlpmixer_args, adamw_args):
     b, p, p, c = x.shape
 
     dl = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(x, y), batch_size=b//4, num_workers=1, shuffle=True
+        torch.utils.data.TensorDataset(x, y),
+        batch_size=b // 4,
+        num_workers=1,
+        shuffle=True,
     )
 
     sgu_args = dict(

@@ -29,7 +29,7 @@ def DepthWiseConv2d(in_channels, kernel_size, num_kernels=1, *args, **kwargs):
         groups=in_channels,
         padding="same",
         *args,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -243,7 +243,7 @@ class MLPMixerBlock(torch.nn.Module):
             hidden_features=hidden_features_sequence,
             sequence_length=in_features,
             activation=activation,
-            dropout=dropout
+            dropout=dropout,
         )
 
     def forward(self, x):
@@ -414,11 +414,8 @@ class SGUMLPMixer(torch.nn.Module):
         self.dropout_rate = dropout
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
-        self.residual_weight = (
-            torch.nn.Parameter(torch.tensor(residual_weight))
-            if learnable_residual
-            else residual_weight
-        )
+        residual_module = torch.nn.Parameter if learnable_residual else torch.nn.Buffer
+        self.residual_weight = residual_module(torch.tensor(residual_weight))
         self.token_embedding = torch.nn.Conv2d(
             patch_channels,
             self.n_channels,
@@ -426,18 +423,24 @@ class SGUMLPMixer(torch.nn.Module):
             padding="valid",
         )
         self.mixer_blocks = torch.nn.Sequential(
-            *[MLPMixerBlock(
-                in_features=self.n_channels,
-                sequence_length=self.n_tokens,
-                hidden_features_channel=mixer_features_channel,
-                hidden_features_sequence=mixer_features_sequence,
-                activation=activation,
-                mlp_block="sgu",
-                dropout=self.dropout_rate,
-            ) for _ in range(num_blocks)]
+            *[
+                MLPMixerBlock(
+                    in_features=self.n_channels,
+                    sequence_length=self.n_tokens,
+                    hidden_features_channel=mixer_features_channel,
+                    hidden_features_sequence=mixer_features_sequence,
+                    activation=activation,
+                    mlp_block="sgu",
+                    dropout=self.dropout_rate,
+                )
+                for _ in range(num_blocks)
+            ]
         )
-        self.head = Classifier(num_classes, self.n_channels, self.dropout_rate) if num_classes > 0 else torch.nn.Identity()
-
+        self.head = (
+            Classifier(num_classes, self.n_channels, self.dropout_rate)
+            if num_classes > 0
+            else torch.nn.Identity()
+        )
 
     def forward(self, x):
         b = x.shape[0]
@@ -453,16 +456,13 @@ class SGUMLPMixer(torch.nn.Module):
 
 
 class LitSGUMLPMixer(lightning.LightningModule):
-    def __init__(
-        self, model_params, optimizer_params, *args, **kwargs
-    ):
+    def __init__(self, model_params, optimizer_params, *args, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
         self.model = SGUMLPMixer(**model_params)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer_cls = torch.optim.AdamW
-
 
     def forward(self, x):
         return self.model(x)
@@ -488,4 +488,6 @@ class LitSGUMLPMixer(lightning.LightningModule):
         return self._test_val_step(batch, batch_idx, "test")
 
     def configure_optimizers(self):
-        return self.optimizer_cls(self.model.parameters(), **self.hparams.optimizer_params)
+        return self.optimizer_cls(
+            self.model.parameters(), **self.hparams.optimizer_params
+        )
