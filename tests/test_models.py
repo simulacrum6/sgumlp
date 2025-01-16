@@ -6,7 +6,6 @@ from src.models import (
     SpatialGatedUnit,
     MLPMixerBlock,
     MLPBlock,
-    SGUMLPBlock,
     DepthWiseConv2d,
     ParallelDepthwiseConv2d,
     Classifier,
@@ -77,15 +76,15 @@ def test_MLPBlock(tokens):
         hidden_features=32,
         activation="relu",
     )
-    mlp = MLPBlock(**params)
+    mlp = MLPBlock(use_sgu=False, **params)
     assert mlp(tokens).shape == tokens.shape
 
     out_features = 2048
     assert out_features != c
-    mlp = MLPBlock(out_features=out_features, **params)
+    mlp = MLPBlock(use_sgu=False, out_features=out_features, **params)
     assert mlp(tokens).shape == (b, t, out_features)
 
-    mlp = SGUMLPBlock(**params)
+    mlp = MLPBlock(use_sgu=True, **params)
     assert mlp(tokens).shape == tokens.shape
 
 
@@ -97,14 +96,15 @@ def test_MixerBlock(tokens):
         hidden_features_channel=32,
         hidden_features_sequence=96,
         activation="relu",
+        dropout=0.2,
     )
-    mixer = MLPMixerBlock(mlp_block="mlp", **params)
+    mixer = MLPMixerBlock(use_sgu=True, **params)
     assert mixer(tokens).shape == tokens.shape
     assert type(mixer.token_mixer) == MLPBlock
 
-    mixer = MLPMixerBlock(mlp_block="sgu", **params)
+    mixer = MLPMixerBlock(use_sgu=False, **params)
     assert mixer(tokens).shape == tokens.shape
-    assert type(mixer.token_mixer) == SGUMLPBlock
+    assert type(mixer.token_mixer) == MLPBlock
 
 
 def test_dwc(hs_image):

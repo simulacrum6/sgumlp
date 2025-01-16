@@ -98,52 +98,7 @@ class SpatialGatedUnit(torch.nn.Module):
         return u * ((self.weights @ v) + self.bias)
 
 
-# todo: make sgu optional input to MLPBlock
 class MLPBlock(torch.nn.Module):
-    """
-    A basic Multi-Layer Perceptron block with two linear layers and an activation function.
-
-    Args:
-        in_features (int): Number of input features
-        hidden_features (int): Number of hidden features in the intermediate layer
-        sequence_length (int, optional): Length of input sequence (unused but kept for API consistency)
-        activation (str, optional): Activation function to use. Defaults to 'gelu'
-        out_features (int, optional): Number of output features. Defaults to in_features if None
-
-    Forward Args:
-        x (torch.Tensor): Input tensor
-
-    Returns:
-        torch.Tensor: Transformed output tensor
-    """
-
-    def __init__(
-        self,
-        in_features,
-        hidden_features,
-        sequence_length=None,
-        activation="gelu",
-        out_features=None,
-        dropout=0.0,
-    ):
-        super().__init__()
-        if out_features is None:
-            out_features = in_features
-        self.dropout = torch.nn.Dropout(dropout)
-        self.mlp1 = torch.nn.Linear(in_features, hidden_features)
-        self.activation = activations.get(activation, torch.nn.GELU)()
-        self.mlp2 = torch.nn.Linear(hidden_features, out_features)
-
-    def forward(self, x):
-        x = self.mlp1(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        x = self.mlp2(x)
-        x = self.dropout(x)
-        return x
-
-
-class SGUMLPBlock(torch.nn.Module):
     """
     A Multi-Layer Perceptron block that incorporates a Spatial Gated Unit between linear layers.
 
@@ -165,19 +120,29 @@ class SGUMLPBlock(torch.nn.Module):
         self,
         in_features,
         hidden_features,
-        sequence_length,
+        sequence_length=None,
         activation="gelu",
+        use_sgu=False,
         out_features=None,
         dropout=0.0,
     ):
         super().__init__()
+        if sequence_length is None and use_sgu:
+            raise ValueError("When using SGU, sequence_length must be specified")
+
         if out_features is None:
             out_features = in_features
+
+        self.activation = activations.get(activation, torch.nn.GELU)()
         self.dropout = torch.nn.Dropout(dropout)
         self.mlp1 = torch.nn.Linear(in_features, hidden_features)
-        self.sgu = SpatialGatedUnit(hidden_features, sequence_length)
-        self.activation = activations.get(activation, torch.nn.GELU)()
-        self.mlp2 = torch.nn.Linear(hidden_features // 2, out_features)
+
+        if use_sgu:
+            self.sgu = SpatialGatedUnit(hidden_features, sequence_length)
+            self.mlp2 = torch.nn.Linear(hidden_features // 2, out_features)
+        else:
+            self.sgu = torch.nn.Identity()
+            self.mlp2 = torch.nn.Linear(hidden_features, out_features)
 
     def forward(self, x):
         x = self.mlp1(x)
@@ -187,12 +152,6 @@ class SGUMLPBlock(torch.nn.Module):
         x = self.mlp2(x)
         x = self.dropout(x)
         return x
-
-
-mlp_blocks = {
-    "mlp": MLPBlock,
-    "sgu": SGUMLPBlock,
-}
 
 
 class MLPMixerBlock(torch.nn.Module):
@@ -223,27 +182,28 @@ class MLPMixerBlock(torch.nn.Module):
         hidden_features_channel,
         hidden_features_sequence,
         activation="gelu",
-        mlp_block="mlp",
+        use_sgu=False,
         dropout=0.0,
     ):
         super().__init__()
-        mlp_block = mlp_blocks.get(mlp_block, MLPBlock)
 
         self.dropout = torch.nn.Dropout(dropout)
         self.layer_norm = torch.nn.LayerNorm([in_features])
-        self.channel_mixer = mlp_block(
+        self.channel_mixer = MLPBlock(
             in_features=in_features,
             hidden_features=hidden_features_channel,
             sequence_length=sequence_length,
             activation=activation,
             dropout=dropout,
+            use_sgu=use_sgu,
         )
-        self.token_mixer = mlp_block(
+        self.token_mixer = MLPBlock(
             in_features=sequence_length,
             hidden_features=hidden_features_sequence,
             sequence_length=in_features,
             activation=activation,
             dropout=dropout,
+            use_sgu=use_sgu,
         )
 
     def forward(self, x):
@@ -306,8 +266,10 @@ class MLPMixer(torch.nn.Module):
         token_features: int,
         mixer_features_channel: int,
         mixer_features_sequence: int,
+        mixer_use_sgu=False,
         num_blocks=1,
         activation="gelu",
+        dropout=0.0,
     ):
         super().__init__()
         h, w, c = image_dimensions
@@ -326,6 +288,8 @@ class MLPMixer(torch.nn.Module):
                     hidden_features_sequence=mixer_features_sequence,
                     sequence_length=self.n_tokens,
                     activation=activation,
+                    use_sgu=mixer_use_sgu,
+                    dropout=dropout,
                 )
             )
 
@@ -387,6 +351,7 @@ class SGUMLPMixer(torch.nn.Module):
         token_features: int,
         mixer_features_channel: int,
         mixer_features_sequence: int,
+        mixer_use_sgu=True,
         dwc_kernels=(1, 3, 5),
         num_blocks=1,
         activation="gelu",
@@ -430,7 +395,7 @@ class SGUMLPMixer(torch.nn.Module):
                     hidden_features_channel=mixer_features_channel,
                     hidden_features_sequence=mixer_features_sequence,
                     activation=activation,
-                    mlp_block="sgu",
+                    use_sgu=mixer_use_sgu,
                     dropout=self.dropout_rate,
                 )
                 for _ in range(num_blocks)
