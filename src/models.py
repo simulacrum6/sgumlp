@@ -1,5 +1,6 @@
 import torch
 import lightning
+import torchmetrics
 
 activations = {
     "gelu": torch.nn.GELU,
@@ -371,6 +372,7 @@ class SGUMLPMixer(torch.nn.Module):
         if patch_height % 2 == 0:
             raise ValueError("Patch height must be odd")
 
+        self.num_classes = num_classes
         self.patch_size = patch_height
         self.embedding_kernel_size = embedding_kernel_size
         self.embedding_patch_size = patch_height - embedding_kernel_size + 1
@@ -421,32 +423,68 @@ class SGUMLPMixer(torch.nn.Module):
 
 
 class LitSGUMLPMixer(lightning.LightningModule):
-    def __init__(self, model_params, optimizer_params, *args, **kwargs):
+    def __init__(self, model_params, optimizer_params, metrics=None, *args, **kwargs):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["metrics"])
+
+        if metrics is None:
+            metrics = self._default_metrics
 
         self.model = SGUMLPMixer(**model_params)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer_cls = torch.optim.AdamW
 
+        self.train_metrics = torchmetrics.MetricCollection(
+            dict(metrics.get("train", self._default_metrics["train"]))
+        )
+        self.test_metrics = torchmetrics.MetricCollection(
+            dict(metrics.get("test", self._default_metrics["test"]))
+        )
+
+    @property
+    def _default_metrics(self):
+        task = "binary" if self.model.num_classes == 2 else "multiclass"
+        return dict(
+            train=dict(
+                accuracy=torchmetrics.Accuracy(
+                    task=task, num_classes=self.model.num_classes
+                ),
+            ),
+            test=dict(
+                accuracy=torchmetrics.Accuracy(
+                    task=task, num_classes=self.model.num_classes
+                ),
+            ),
+        )
+
     def forward(self, x):
         return self.model(x)
 
-    def _step(self, batch, batch_idx, split):
+    def _step(self, batch, batch_idx, split, on_step=False, on_epoch=True):
         x, y = batch
         y_hat = self.forward(x)
         loss = self.criterion(y_hat, y)
+
         self.log(f"{split}_loss", loss)
+        metrics = self.train_metrics if split == "train" else self.test_metrics
+        for name, metric in metrics.items():
+            self.log(
+                f"{split}_{name}",
+                metric(y_hat, y),
+                on_step=on_step,
+                on_epoch=on_epoch,
+                prog_bar=True,
+            )
         return loss
 
     def training_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "train")
+        return self._step(batch, batch_idx, "train", on_step=True, on_epoch=False)
 
     def validation_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "val")
+        return self._step(batch, batch_idx, "val", on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "test")
+        return self._step(batch, batch_idx, "test", on_step=False, on_epoch=True)
 
     def configure_optimizers(self):
         return self.optimizer_cls(
