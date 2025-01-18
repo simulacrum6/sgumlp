@@ -1,5 +1,4 @@
 import datetime
-import multiprocessing
 from pathlib import Path
 
 import lightning
@@ -24,19 +23,19 @@ def get_dataloader(dataset, batch_size, idxs=None):
 
 
 def reproduction():
+    # TODO: use config
+    # training parameters
+    n_epochs = 100
+    n_folds = 5
+    batch_size = 256
     seed = 271828182
     lightning.seed_everything(seed)
 
     # experiment parameters
     run_id = f"{int(datetime.datetime.now().timestamp())}"
-    cfg_path = Path("data/.augsburg.json")
+    cfg_path = Path("data/config/.augsburg.json")
     save_dir = Path(f"data/runs/{run_id}")
     model_dir = save_dir / "checkpoints"
-
-    # training parameters
-    n_epochs = 100
-    n_folds = 5
-    batch_size = 256
 
     # load data
     dataset = Dataset.from_json(cfg_path)
@@ -83,9 +82,21 @@ def reproduction():
     test_dataloader = get_dataloader(dataset_test, batch_size, None)
     cv = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
     for fold, (train_idx, val_idx) in enumerate(cv.split(dataset_train)):
+        meta_data = {
+            'run_id': run_id,
+            'seed': seed,
+            'cv': {
+                'fold': fold,
+                'n_folds': n_folds,
+            },
+            'datasets': {
+                'train': dataset.name,
+                'validation': dataset.name,
+            }
+        }
         train_dataloader = get_dataloader(dataset_train, batch_size, train_idx)
         val_dataloader = get_dataloader(dataset_train, batch_size, val_idx)
-        model = LitSGUMLPMixer(model_args, optimizer_args, metrics)
+        model = LitSGUMLPMixer(model_args, optimizer_args, metrics, meta_data=meta_data)
         checkpoint_cb = lightning.pytorch.callbacks.ModelCheckpoint(
             filename=f"{fold}" + "_{epoch}-{step}",
             save_top_k=1,

@@ -422,39 +422,37 @@ class SGUMLPMixer(torch.nn.Module):
         return x
 
 
+def _default_metrics(num_classes):
+    task = "binary" if num_classes == 2 else "multiclass"
+    return dict(
+        train=dict(
+            accuracy=torchmetrics.Accuracy(
+                task=task, num_classes=num_classes
+            ),
+        ),
+        test=dict(
+            accuracy=torchmetrics.Accuracy(
+                task=task, num_classes=num_classes
+            ),
+        ),
+    )
+
 class LitSGUMLPMixer(lightning.LightningModule):
     def __init__(self, model_params, optimizer_params, metrics=None, *args, **kwargs):
         super().__init__()
         self.save_hyperparameters(ignore=["metrics"])
 
         if metrics is None:
-            metrics = self._default_metrics
-
+            metrics = _default_metrics(self.hparams.model_params["num_classes"])
         self.model = SGUMLPMixer(**model_params)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer_cls = torch.optim.AdamW
 
         self.train_metrics = torchmetrics.MetricCollection(
-            dict(metrics.get("train", self._default_metrics["train"]))
+            dict(metrics.get("train", _default_metrics(self.model.num_classes)["train"]))
         )
         self.test_metrics = torchmetrics.MetricCollection(
-            dict(metrics.get("test", self._default_metrics["test"]))
-        )
-
-    @property
-    def _default_metrics(self):
-        task = "binary" if self.model.num_classes == 2 else "multiclass"
-        return dict(
-            train=dict(
-                accuracy=torchmetrics.Accuracy(
-                    task=task, num_classes=self.model.num_classes
-                ),
-            ),
-            test=dict(
-                accuracy=torchmetrics.Accuracy(
-                    task=task, num_classes=self.model.num_classes
-                ),
-            ),
+            dict(metrics.get("test", _default_metrics(self.model.num_classes)["test"]))
         )
 
     def forward(self, x):

@@ -54,3 +54,75 @@ def adamw_args():
         eps=1e-8,
         weight_decay=0.01,
     )
+
+@pytest.fixture
+def exp_cfg():
+    return {
+        "version": "0.0.1",
+        "run_id": "auto",
+        "name": "REPLICATION OF 'Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping'",
+        "datasets": {
+            "train": [
+                {
+                    "name": "augsburg",
+                    "base_dir": "./data/datasets/HS-SAR-DSM Augsburg",
+                    "feature_files": [
+                        "data_DSM.mat",
+                        "data_HS_LR.mat",
+                        "data_SAR_HR.mat"
+                    ],
+                    "labels_file": "TrainImage.mat",
+                    "labels_file_test": "TestImage.mat",
+                    "na_label": 0,
+                    "preprocessing": {
+                        "pca": ["data_HS_LR"]
+                    }
+                }
+            ],
+            "validation": [],
+            "test": []
+        },
+        "training": {
+            "seed": 42,
+            "type": "cv",
+            "size": 5,
+            "batch_size": 256,
+            "epochs": 100,
+            "early_stopping": False
+        },
+        "model": {
+            "class_name": "litsgumlpmixer",
+            "args": {
+                "input_dimensions": -1,
+                "num_classes": -1,
+                "token_features": 256,
+                "mixer_features_channel": 256,
+                "mixer_features_sequence": 256,
+                "dwc_kernels": [1, 3, 5],
+                "embedding_kernel_size": 4,
+                "num_blocks": 1,
+                "activation": "gelu",
+                "residual_weight": 2,
+                "learnable_residual": False,
+                "dropout": 0.4
+            }
+        },
+        "optimizer": {
+            "class_name": "adamw",
+            "args": {
+                "lr": 0.001,
+                "weight_decay": 0.0001
+            }
+        },
+        "metrics": {
+            "train": [
+                "accuracy"
+            ],
+            "test": [
+                "accuracy",
+                "precision",
+                "recall",
+                "f1_score"
+            ]
+        }
+    }

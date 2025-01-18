@@ -1,6 +1,4 @@
-import json
 import typing
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +7,8 @@ import sklearn
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
+
+from src.config import DatasetConfig
 
 
 def _load_matrix(fp: Path | str):
@@ -117,20 +117,6 @@ def patchify(
     )
     image = sliding_window_view(image, window_shape=window_shape).squeeze()
     return image
-
-
-@dataclass
-class DatasetConfig:
-    name: str
-    base_dir: str
-    feature_files: list[str]
-    labels_file: str
-    labels_file_test: str | None = None
-
-    @classmethod
-    def from_json(cls, path):
-        with open(path) as f:
-            return cls(**json.load(f))
 
 
 class Feature:

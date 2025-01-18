@@ -1,5 +1,4 @@
 from src.data import patchify
-import numpy as np
 
 
 def test_patchify(image_and_labels):
