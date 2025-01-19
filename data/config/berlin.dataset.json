@@ -1,0 +1,10 @@
+{
+    "name": "berlin",
+    "base_dir": "data/Datasets/HS-SAR Berlin",
+    "feature_files": [
+        "data_HS_LR.mat",
+        "data_SAR_HR.mat"
+    ],
+    "labels_file": "TrainImage.mat",
+    "labels_file_test": "TestImage.mat"
+}

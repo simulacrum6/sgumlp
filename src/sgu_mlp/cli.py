@@ -1,6 +1,8 @@
 import datetime
 from pathlib import Path
 
+import patoolib
+import gdown
 import lightning
 import torch
 import torchmetrics
@@ -10,7 +12,7 @@ from .data import Dataset, preprocess
 from .models import LitSGUMLPMixer
 
 
-def get_dataloader(dataset, batch_size, idxs=None):
+def _get_dataloader(dataset, batch_size, idxs=None):
     sampler = None
     if idxs is not None:
         sampler = torch.utils.data.SubsetRandomSampler(idxs)
@@ -21,6 +23,16 @@ def get_dataloader(dataset, batch_size, idxs=None):
         sampler=sampler,
     )
 
+def download_datasets():
+    data_path = Path('data')
+    data_path.mkdir(parents=True, exist_ok=True)
+    file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv" # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
+    file_path = data_path / (file_id + '.rar')
+    try:
+        gdown.download(id=file_id, output=str(file_path), quiet=False)
+        patoolib.extract_archive(str(file_path), outdir=str(data_path))
+    finally:
+        file_path.unlink(missing_ok=True)
 
 def reproduction():
     # TODO: use config
@@ -33,7 +45,7 @@ def reproduction():
 
     # experiment parameters
     run_id = f"{int(datetime.datetime.now().timestamp())}"
-    cfg_path = Path("data/config/.augsburg.json")
+    cfg_path = Path("data/config/augsburg.dataset.json")
     save_dir = Path(f"data/runs/{run_id}")
     model_dir = save_dir / "checkpoints"
 
@@ -79,7 +91,7 @@ def reproduction():
         )
     )
 
-    test_dataloader = get_dataloader(dataset_test, batch_size, None)
+    test_dataloader = _get_dataloader(dataset_test, batch_size, None)
     cv = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
     for fold, (train_idx, val_idx) in enumerate(cv.split(dataset_train)):
         meta_data = {
@@ -94,8 +106,8 @@ def reproduction():
                 'validation': dataset.name,
             }
         }
-        train_dataloader = get_dataloader(dataset_train, batch_size, train_idx)
-        val_dataloader = get_dataloader(dataset_train, batch_size, val_idx)
+        train_dataloader = _get_dataloader(dataset_train, batch_size, train_idx)
+        val_dataloader = _get_dataloader(dataset_train, batch_size, val_idx)
         model = LitSGUMLPMixer(model_args, optimizer_args, metrics, meta_data=meta_data)
         checkpoint_cb = lightning.pytorch.callbacks.ModelCheckpoint(
             filename=f"{fold}" + "_{epoch}-{step}",

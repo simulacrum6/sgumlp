@@ -1,0 +1,11 @@
+{
+    "name": "augsburg",
+    "base_dir": "data/Datasets/HS-SAR-DSM Augsburg",
+    "feature_files": [
+        "data_DSM.mat",
+        "data_HS_LR.mat",
+        "data_SAR_HR.mat"
+    ],
+    "labels_file": "TrainImage.mat",
+    "labels_file_test": "TestImage.mat"
+}

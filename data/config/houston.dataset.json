@@ -1,0 +1,10 @@
+{
+    "name": "houston",
+    "base_dir": "data/Datasets/HS-MS Houston2013",
+    "feature_files": [
+        "data_HS_LR.mat",
+        "data_MS_HR.mat"
+    ],
+    "labels_file": "2013_IEEE_GRSS_DF_Contest_Samples_TR.tif",
+    "labels_file_test": "2013_IEEE_GRSS_DF_Contest_Samples_VA.tif"
+}

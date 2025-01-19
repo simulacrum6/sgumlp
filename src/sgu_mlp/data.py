@@ -289,16 +289,3 @@ def preprocess(dataset: Dataset, image_dtype=np.float32, num_hs_components=15):
         dataset.targets("train"),
         dataset.targets("test"),
     )
-
-
-if __name__ == "__main__":
-    json_path = "data/.berlin.json"
-    cfg = DatasetConfig.from_json(json_path)
-    dataset = Dataset.from_json(json_path)
-    X_train, X_test, y_train, y_test = preprocess(dataset)
-
-    json_path = "data/.houston.json"
-    cfg = DatasetConfig.from_json(json_path)
-    dataset = Dataset.from_json(json_path)
-    dataset.labels_train
-    X_train, X_test, y_train, y_test = preprocess(dataset)
