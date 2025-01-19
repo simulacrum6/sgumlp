@@ -14,6 +14,7 @@ name = "sgu-mlp"
 
 [project.scripts]
 replication = 'sgu_mlp.cli:reproduction'
+cross_location = 'sgu_mlp.cli:cross_location'
 download_datasets = 'sgu_mlp.cli:download_datasets'
 
 [tool.poetry.dependencies]
