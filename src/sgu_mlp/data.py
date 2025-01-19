@@ -260,7 +260,12 @@ def reduce_dimensions(
     return X_reduced
 
 
-def preprocess(dataset: Dataset, image_dtype=np.float32, num_hs_components=15, return_train_test=True):
+def preprocess(
+    dataset: Dataset,
+    image_dtype=np.float32,
+    num_hs_components=15,
+    return_train_test=True,
+):
     train_mask = dataset.split_mask("train")
     test_mask = dataset.split_mask("test")
 

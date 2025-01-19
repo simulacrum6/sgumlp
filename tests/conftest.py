@@ -55,6 +55,7 @@ def adamw_args():
         weight_decay=0.01,
     )
 
+
 @pytest.fixture
 def exp_cfg():
     return {
@@ -69,18 +70,16 @@ def exp_cfg():
                     "feature_files": [
                         "data_DSM.mat",
                         "data_HS_LR.mat",
-                        "data_SAR_HR.mat"
+                        "data_SAR_HR.mat",
                     ],
                     "labels_file": "TrainImage.mat",
                     "labels_file_test": "TestImage.mat",
                     "na_label": 0,
-                    "preprocessing": {
-                        "pca": ["data_HS_LR"]
-                    }
+                    "preprocessing": {"pca": ["data_HS_LR"]},
                 }
             ],
             "validation": [],
-            "test": []
+            "test": [],
         },
         "training": {
             "seed": 42,
@@ -88,7 +87,7 @@ def exp_cfg():
             "size": 5,
             "batch_size": 256,
             "epochs": 100,
-            "early_stopping": False
+            "early_stopping": False,
         },
         "model": {
             "class_name": "litsgumlpmixer",
@@ -104,25 +103,15 @@ def exp_cfg():
                 "activation": "gelu",
                 "residual_weight": 2,
                 "learnable_residual": False,
-                "dropout": 0.4
-            }
+                "dropout": 0.4,
+            },
         },
         "optimizer": {
             "class_name": "adamw",
-            "args": {
-                "lr": 0.001,
-                "weight_decay": 0.0001
-            }
+            "args": {"lr": 0.001, "weight_decay": 0.0001},
         },
         "metrics": {
-            "train": [
-                "accuracy"
-            ],
-            "test": [
-                "accuracy",
-                "precision",
-                "recall",
-                "f1_score"
-            ]
-        }
+            "train": ["accuracy"],
+            "test": ["accuracy", "precision", "recall", "f1_score"],
+        },
     }

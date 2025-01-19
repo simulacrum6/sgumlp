@@ -12,7 +12,7 @@ def test_experimentconfig(exp_cfg, tmp_path):
     if exp_cfg["run_id"] == "auto":
         assert experiment.run_id != "auto"
 
-    fp = tmp_path / 'experiment.json'
+    fp = tmp_path / "experiment.json"
     fp_ = experiment.to_json(fp)
     assert str(fp) == str(fp_)
 

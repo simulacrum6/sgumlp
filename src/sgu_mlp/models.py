@@ -1,5 +1,5 @@
-import torch
 import lightning
+import torch
 import torchmetrics
 
 activations = {
@@ -426,16 +426,13 @@ def _default_metrics(num_classes):
     task = "binary" if num_classes == 2 else "multiclass"
     return dict(
         train=dict(
-            accuracy=torchmetrics.Accuracy(
-                task=task, num_classes=num_classes
-            ),
+            accuracy=torchmetrics.Accuracy(task=task, num_classes=num_classes),
         ),
         test=dict(
-            accuracy=torchmetrics.Accuracy(
-                task=task, num_classes=num_classes
-            ),
+            accuracy=torchmetrics.Accuracy(task=task, num_classes=num_classes),
         ),
     )
+
 
 class LitSGUMLPMixer(lightning.LightningModule):
     def __init__(self, model_params, optimizer_params, metrics=None, *args, **kwargs):
@@ -449,7 +446,9 @@ class LitSGUMLPMixer(lightning.LightningModule):
         self.optimizer_cls = torch.optim.AdamW
 
         self.train_metrics = torchmetrics.MetricCollection(
-            dict(metrics.get("train", _default_metrics(self.model.num_classes)["train"]))
+            dict(
+                metrics.get("train", _default_metrics(self.model.num_classes)["train"])
+            )
         )
         self.test_metrics = torchmetrics.MetricCollection(
             dict(metrics.get("test", _default_metrics(self.model.num_classes)["test"]))

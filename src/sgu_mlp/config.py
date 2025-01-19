@@ -1,21 +1,22 @@
 import dataclasses
 import json
+from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime
 from os import PathLike
 from typing import Literal, Mapping, Sequence, Any
-from abc import ABC
 
 Split = Literal["train", "test", "validation"]
 Metric = Literal["accuracy", "precision", "recall", "f1_score"]
 TrainType = Literal["train-test", "cv"]
+
 
 @dataclass
 class JSONSerializableMixin(ABC):
     def to_dict(self) -> Mapping[str, Any]:
         return dataclasses.asdict(self)
 
-    def to_json(self, filepath: PathLike=None) -> str:
+    def to_json(self, filepath: PathLike = None) -> str:
         data = self.to_dict()
         if filepath is None:
             return json.dumps(data)
@@ -45,6 +46,7 @@ class DatasetConfig(JSONSerializableMixin):
         with open(path) as f:
             return cls(**json.load(f))
 
+
 @dataclass
 class TrainingConfig(JSONSerializableMixin):
     seed: int = 42
@@ -54,10 +56,12 @@ class TrainingConfig(JSONSerializableMixin):
     epochs: int = 100
     early_stopping: bool = False
 
+
 @dataclass
 class ModuleConfig(JSONSerializableMixin):
     class_name: str
     args: Mapping[str, any]
+
 
 @dataclass
 class MetricsConfig(JSONSerializableMixin):
@@ -65,7 +69,10 @@ class MetricsConfig(JSONSerializableMixin):
     task_type: Literal["multiclass", "binary"] = "multiclass"
     num_classes: int = -1
     train: Sequence[Metric] = dataclasses.field(default_factory=lambda: ["accuracy"])
-    test: Sequence[Metric] = dataclasses.field(default_factory=lambda: ["accuracy", "precision", "recall", "f1_score"])
+    test: Sequence[Metric] = dataclasses.field(
+        default_factory=lambda: ["accuracy", "precision", "recall", "f1_score"]
+    )
+
 
 @dataclass
 class ExperimentConfig(JSONSerializableMixin):
