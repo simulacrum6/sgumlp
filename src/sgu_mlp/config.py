@@ -2,14 +2,36 @@ import dataclasses
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Mapping, Sequence
+from os import PathLike
+from typing import Literal, Mapping, Sequence, Any
+from abc import ABC
 
 Split = Literal["train", "test", "validation"]
 Metric = Literal["accuracy", "precision", "recall", "f1_score"]
 TrainType = Literal["train-test", "cv"]
 
 @dataclass
-class DatasetConfig:
+class JSONSerializableMixin(ABC):
+    def to_dict(self) -> Mapping[str, Any]:
+        return dataclasses.asdict(self)
+
+    def to_json(self, filepath: PathLike=None) -> str:
+        data = self.to_dict()
+        if filepath is None:
+            return json.dumps(data)
+        else:
+            with open(filepath, "w") as f:
+                json.dump(data, f)
+                return str(filepath)
+
+    @classmethod
+    def from_json(cls, filepath: PathLike):
+        with open(filepath, "r") as f:
+            return cls(**json.load(f))
+
+
+@dataclass
+class DatasetConfig(JSONSerializableMixin):
     name: str
     base_dir: str
     feature_files: list[str]
@@ -24,7 +46,7 @@ class DatasetConfig:
             return cls(**json.load(f))
 
 @dataclass
-class TrainingConfig:
+class TrainingConfig(JSONSerializableMixin):
     seed: int = 42
     type: TrainType = "cv"
     size: int = 5
@@ -33,12 +55,12 @@ class TrainingConfig:
     early_stopping: bool = False
 
 @dataclass
-class ModuleConfig:
+class ModuleConfig(JSONSerializableMixin):
     class_name: str
     args: Mapping[str, any]
 
 @dataclass
-class MetricsConfig:
+class MetricsConfig(JSONSerializableMixin):
     task: Literal["classification", "regression"] = "classification"
     task_type: Literal["multiclass", "binary"] = "multiclass"
     num_classes: int = -1
@@ -46,7 +68,7 @@ class MetricsConfig:
     test: Sequence[Metric] = dataclasses.field(default_factory=lambda: ["accuracy", "precision", "recall", "f1_score"])
 
 @dataclass
-class ExperimentConfig:
+class ExperimentConfig(JSONSerializableMixin):
     datasets: Mapping[Split, Sequence[DatasetConfig]]
     model: ModuleConfig
     optimizer: ModuleConfig
@@ -65,4 +87,8 @@ class ExperimentConfig:
     def _run_id(self):
         return f"{self.name}__{datetime.now().isoformat()}"
 
-
+    def dataset(self, split: Split):
+        dataset = self.datasets[split]
+        if not dataset:
+            dataset = self.datasets["train"]
+        return dataset
