@@ -1,4 +1,4 @@
-from src.data import patchify
+from sgu_mlp.data import patchify
 
 
 def test_patchify(image_and_labels):

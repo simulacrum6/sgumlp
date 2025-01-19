@@ -1,4 +1,4 @@
-from src.config import ExperimentConfig
+from sgu_mlp.config import ExperimentConfig
 
 
 def test_experimentconfig(exp_cfg):

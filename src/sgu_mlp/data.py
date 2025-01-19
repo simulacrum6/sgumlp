@@ -8,7 +8,7 @@ from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
 
-from src.config import DatasetConfig
+from .config import DatasetConfig
 
 
 def _load_matrix(fp: Path | str):

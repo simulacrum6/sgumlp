@@ -6,8 +6,8 @@ import torch
 import torchmetrics
 from sklearn.model_selection import KFold
 
-from data import Dataset, preprocess
-from models import LitSGUMLPMixer
+from .data import Dataset, preprocess
+from .models import LitSGUMLPMixer
 
 
 def get_dataloader(dataset, batch_size, idxs=None):
@@ -111,7 +111,3 @@ def reproduction():
         )
         trainer.fit(model, train_dataloader, val_dataloader)
         trainer.test(model, test_dataloader)
-
-
-if __name__ == "__main__":
-    reproduction()

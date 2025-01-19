@@ -4,6 +4,16 @@ version = "0.1.0"
 description = "Implementation of the SGU-MLP Architecture (mostly) as described in the paper \"Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping\"."
 authors = ["Marius Hamacher <marius.hamacher@outlook.de>"]
 readme = "README.md"
+packages = [
+    {include = "sgu_mlp", from = "src"}
+]
+
+
+[project]
+name = "sgu-mlp"
+
+[project.scripts]
+replication = 'sgu_mlp.cli:reproduction'
 
 [tool.poetry.dependencies]
 python = "^3.10"

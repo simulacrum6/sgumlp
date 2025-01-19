@@ -2,7 +2,7 @@ import lightning
 import torch
 
 
-from src.models import (
+from sgu_mlp.models import (
     MLPMixer,
     SGUMLPMixer,
     SpatialGatedUnit,
