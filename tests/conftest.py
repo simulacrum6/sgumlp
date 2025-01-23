@@ -115,3 +115,59 @@ def exp_cfg():
             "test": ["accuracy", "precision", "recall", "f1_score"],
         },
     }
+
+
+@pytest.fixture
+def test_experiment_cfg():
+    return {
+        "version": "0.0.1",
+        "name": "test",
+        "run_id": None,
+        "description": "REPLICATION OF 'Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping'",
+        "out_dir": None,
+        "mlflow_uri": None,
+        "datasets": {
+            "train": {
+                "name": "augsburg",
+                "base_dir": "./data/Datasets/HS-SAR-DSM Augsburg",
+                "feature_files": ["data_DSM.mat", "data_HS_LR.mat", "data_SAR_HR.mat"],
+                "labels_file": "TrainImage.mat",
+                "labels_file_test": "TestImage.mat",
+                "na_label": 0,
+                "preprocessing": [{"pca": ["data_HS_LR"]}],
+            },
+            "validation": None,
+            "test": None,
+        },
+        "training": {
+            "seed": 42,
+            "type": "cv",
+            "n_folds": 3,
+            "batch_size": 256,
+            "epochs": 1,
+            "early_stopping": False,
+        },
+        "model": {
+            "class_name": "litsgumlpmixer",
+            "args": {
+                "token_features": 64,
+                "mixer_features_channel": 64,
+                "mixer_features_sequence": 64,
+                "dwc_kernels": [1, 3, 5],
+                "embedding_kernel_size": 4,
+                "num_blocks": 1,
+                "activation": "gelu",
+                "residual_weight": 2,
+                "learnable_residual": False,
+                "dropout": 0.4,
+            },
+        },
+        "optimizer": {
+            "class_name": "adamw",
+            "args": {"lr": 0.001, "weight_decay": 0.0001},
+        },
+        "metrics": {
+            "train": ["accuracy"],
+            "test": ["accuracy", "precision", "recall", "f1_score"],
+        },
+    }

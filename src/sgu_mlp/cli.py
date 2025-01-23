@@ -49,18 +49,6 @@ def _get_logger(experiment_name, run_id, tracking_uri: str | None, save_local: b
     )
 
 
-def download_datasets():
-    data_path = Path("data")
-    data_path.mkdir(parents=True, exist_ok=True)
-    file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv"  # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
-    file_path = data_path / (file_id + ".rar")
-    try:
-        gdown.download(id=file_id, output=str(file_path), quiet=False)
-        patoolib.extract_archive(str(file_path), outdir=str(data_path))
-    finally:
-        file_path.unlink(missing_ok=True)
-
-
 def _get_metrics(num_labels: int):
     task = "binary" if num_labels == 2 else "multiclass"
     metric_args = dict(task=task, num_classes=num_labels)
@@ -75,6 +63,18 @@ def _get_metrics(num_labels: int):
             f1=torchmetrics.F1Score(**metric_args),
         ),
     )
+
+
+def download_datasets():
+    data_path = Path("data")
+    data_path.mkdir(parents=True, exist_ok=True)
+    file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv"  # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
+    file_path = data_path / (file_id + ".rar")
+    try:
+        gdown.download(id=file_id, output=str(file_path), quiet=False)
+        patoolib.extract_archive(str(file_path), outdir=str(data_path))
+    finally:
+        file_path.unlink(missing_ok=True)
 
 
 def run_cv(
@@ -114,22 +114,16 @@ def run_cv(
             trainer.test(model, test_dataloader)
 
 
-def cv_experiment(
-    experiment_cfg_path: str = "./data/config/replication.experiment.json",
-):
-    experiment_cfg_path = Path(experiment_cfg_path)
+def setup_experiment(experiment_cfg_path):
     with open(experiment_cfg_path, "r") as f:
         cfg = json.load(f)
 
     experiment_name = cfg["name"]
-    training_args = cfg["training"]
-    model_args = cfg["model"]["args"]
-    optimizer_args = cfg["optimizer"]["args"]
-    train_dataset_cfg = cfg["datasets"]["train"]
 
     run_id = cfg.get("run_id")
     if run_id is None:
         run_id = f"{experiment_name}__{int(datetime.datetime.now().timestamp())}"
+
     save_dir = cfg.get("out_dir")
     if save_dir is None:
         save_dir = Path(f"data/runs/{run_id}")
@@ -137,7 +131,6 @@ def cv_experiment(
     with open(save_dir / "config.json", "w") as f:
         json.dump(cfg, f)
 
-    # configure logging
     tracking_uri = cfg.get("mlflow_uri")
     save_local = False
     if tracking_uri is None:
@@ -148,13 +141,24 @@ def cv_experiment(
         experiment_name, run_id, tracking_uri=tracking_uri, save_local=save_local
     )
 
-    trainer_args = dict(
-        default_root_dir=save_dir,
-        deterministic=True,
-        accelerator="auto",
-        max_epochs=training_args["epochs"],
-        logger=logger,
+    return (
+        cfg,
+        run_id,
+        save_dir,
+        logger,
     )
+
+
+def cv_experiment(
+    experiment_cfg_path: str = "./data/config/replication.experiment.json",
+):
+    cfg, run_id, save_dir, logger = setup_experiment(experiment_cfg_path)
+
+    experiment_name = cfg["name"]
+    training_args = cfg["training"]
+    model_args = cfg["model"]["args"]
+    optimizer_args = cfg["optimizer"]["args"]
+    train_dataset_cfg = cfg["datasets"]["train"]
 
     lightning.seed_everything(training_args["seed"])
 
@@ -182,6 +186,14 @@ def cv_experiment(
             "validation": dataset.name,
         },
     }
+
+    trainer_args = dict(
+        default_root_dir=save_dir,
+        deterministic=True,
+        accelerator="auto",
+        max_epochs=training_args["epochs"],
+        logger=logger,
+    )
 
     run_cv(
         dataset_train,
