@@ -13,8 +13,8 @@ packages = [
 name = "sgu-mlp"
 
 [project.scripts]
-replication = 'sgu_mlp.cli:reproduction'
-cross_location = 'sgu_mlp.cli:cross_location'
+replication = 'sgu_mlp.cli:cv_experiment'
+cross_location = 'sgu_mlp.cli:ood_experiment'
 download_datasets = 'sgu_mlp.cli:download_datasets'
 
 [tool.poetry.dependencies]
@@ -30,6 +30,7 @@ pandas = "^2.2.3"
 torchmetrics = "^1.6.1"
 gdown = { version = "^5.2.0", optional = true }
 patool = { version = "^3.1.0", optional = true }
+mlflow = "^2.20.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"

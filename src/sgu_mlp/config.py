@@ -39,7 +39,7 @@ class DatasetConfig(JSONSerializableMixin):
     labels_file: str
     labels_file_test: str | None = None
     na_label: int | None = None
-    preprocessing: dict | None = None
+    preprocessing: list | None = None
 
     @classmethod
     def from_json(cls, path):
