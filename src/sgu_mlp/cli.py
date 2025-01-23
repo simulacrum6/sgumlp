@@ -77,6 +77,24 @@ def download_datasets():
         file_path.unlink(missing_ok=True)
 
 
+def run_train_test(
+    dataloader_train: torch.utils.data.DataLoader,
+    model_args: dict,
+    trainer_args: dict,
+    optimizer_args: dict,
+    metrics: dict,
+    meta_data: dict,
+    dataloader_val: torch.utils.data.DataLoader = None,
+    dataloader_test: torch.utils.data.Dataset = None,
+    model_class = LitSGUMLPMixer,
+):
+    model = model_class(model_args, optimizer_args, metrics, meta_data=meta_data)
+    trainer = lightning.Trainer(**trainer_args)
+    trainer.fit(model, dataloader_train, dataloader_val)
+    if dataloader_test:
+        trainer.test(model, dataloader_test)
+
+
 def run_cv(
     dataset_train: torch.utils.data.Dataset,
     model_args: dict,
@@ -105,13 +123,16 @@ def run_cv(
             dataset_train, batch_size, val_idx, shuffle=False
         )
 
-        model = LitSGUMLPMixer(model_args, optimizer_args, metrics, meta_data=meta_data)
-
-        trainer = lightning.Trainer(**trainer_args)
-        trainer.fit(model, train_dataloader, val_dataloader)
-
-        if test_dataloader:
-            trainer.test(model, test_dataloader)
+        run_train_test(
+            train_dataloader,
+            model_args,
+            trainer_args,
+            optimizer_args,
+            metrics,
+            meta_data,
+            val_dataloader,
+            test_dataloader,
+        )
 
 
 def setup_experiment(experiment_cfg_path):
