@@ -6,6 +6,7 @@ from pathlib import Path
 import gdown
 import lightning
 import mlflow
+import numpy as np
 import patoolib
 import requests
 import sklearn.model_selection
@@ -16,6 +17,8 @@ from sklearn.model_selection import KFold
 from sgu_mlp.config import DatasetConfig
 from sgu_mlp.data import Dataset, preprocess
 from sgu_mlp.models import LitSGUMLPMixer
+
+from collections import namedtuple
 
 
 def _get_dataloader(dataset, batch_size, idxs=None, shuffle=False, num_workers=1):
@@ -85,14 +88,20 @@ def run_train_test(
     metrics: dict,
     meta_data: dict,
     dataloader_val: torch.utils.data.DataLoader = None,
-    dataloader_test: torch.utils.data.Dataset = None,
-    model_class = LitSGUMLPMixer,
+    dataloader_test: torch.utils.data.Dataset | list = None,
+    model_class=LitSGUMLPMixer,
 ):
     model = model_class(model_args, optimizer_args, metrics, meta_data=meta_data)
     trainer = lightning.Trainer(**trainer_args)
     trainer.fit(model, dataloader_train, dataloader_val)
-    if dataloader_test:
+    if dataloader_test is None:
+        return
+    if type(dataloader_test) is list:
+        for dl in dataloader_test:
+            trainer.test(model, dl)
+    else:
         trainer.test(model, dataloader_test)
+
 
 
 def run_cv(
@@ -162,12 +171,36 @@ def setup_experiment(experiment_cfg_path):
         experiment_name, run_id, tracking_uri=tracking_uri, save_local=save_local
     )
 
+    print("Running experiment...")
+    print(experiment_name)
+    print(run_id)
+    print(tracking_uri)
+
     return (
         cfg,
         run_id,
         save_dir,
         logger,
     )
+
+
+def _load_and_preprocess_dataset(dataset_cfg: dict):
+    dataset = Dataset.from_config(DatasetConfig(**dataset_cfg))
+    X_train, X_test, y_train, y_test = preprocess(dataset)
+    dataset_train = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_train), torch.from_numpy(y_train)
+    )
+    dataset_test = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_test), torch.from_numpy(y_test)
+    )
+
+    return {
+        "name": dataset.name,
+        "train": dataset_train,
+        "test": dataset_test,
+        "num_labels": dataset.num_labels,
+        "input_dimensions": X_train.shape[1:],
+    }
 
 
 def cv_experiment(
@@ -183,18 +216,11 @@ def cv_experiment(
 
     lightning.seed_everything(training_args["seed"])
 
-    dataset = Dataset.from_config(DatasetConfig(**train_dataset_cfg))
-    X_train, X_test, y_train, y_test = preprocess(dataset)
-    dataset_train = torch.utils.data.TensorDataset(
-        torch.from_numpy(X_train), torch.from_numpy(y_train)
-    )
-    dataset_test = torch.utils.data.TensorDataset(
-        torch.from_numpy(X_test), torch.from_numpy(y_test)
-    )
-    model_args["input_dimensions"] = X_train.shape[1:]
-    model_args["num_classes"] = dataset.num_labels
+    dataset = _load_and_preprocess_dataset(train_dataset_cfg)
+    model_args["input_dimensions"] = dataset["input_dimensions"]
+    model_args["num_classes"] = dataset["num_labels"]
 
-    metrics = _get_metrics(dataset.num_labels)
+    metrics = _get_metrics(dataset["num_labels"])
 
     meta_data = {
         "experiment_name": experiment_name,
@@ -203,8 +229,8 @@ def cv_experiment(
         "batch_size": training_args["batch_size"],
         "n_folds": training_args.get("n_folds", 5),
         "datasets": {
-            "train": dataset.name,
-            "validation": dataset.name,
+            "train": dataset["name"],
+            "validation": dataset["name"],
         },
     }
 
@@ -217,123 +243,109 @@ def cv_experiment(
     )
 
     run_cv(
-        dataset_train,
+        dataset["train"],
         model_args,
         trainer_args,
         optimizer_args,
         metrics,
         meta_data,
-        dataset_test,
+        dataset["test"],
     )
 
 
-def ood_experiment():
-    # training parameters
-    n_epochs = 3
-    n_folds = 5
-    batch_size = 256
-    seed = 271828182
-    lightning.seed_everything(seed)
-    num_labels = 7
+def ood_experiment(
+    experiment_cfg_path: str = "./data/config/cross_location.experiment.json",
+):
+    cfg, run_id, save_dir, logger = setup_experiment(experiment_cfg_path)
 
-    model_args = dict(
-        input_dimensions=(9, 9, 20),
-        token_features=256,
-        mixer_features_channel=256,
-        mixer_features_sequence=256,
-        dwc_kernels=(1, 3, 5),
-        num_blocks=1,
-        activation="gelu",
-        residual_weight=2,
-        learnable_residual=False,
-        embedding_kernel_size=4,
-        num_classes=num_labels,
-        dropout=0.4,
+    experiment_name = cfg["name"]
+    training_args = cfg["training"]
+    model_args = cfg["model"]["args"]
+    optimizer_args = cfg["optimizer"]["args"]
+    dataset_cfgs = cfg["datasets"]
+    trainer_args = dict(
+        default_root_dir=save_dir,
+        deterministic=True,
+        accelerator="auto",
+        max_epochs=training_args["epochs"],
+        logger=logger,
     )
 
-    optimizer_args = dict(lr=0.001, weight_decay=0.0001)
+    lightning.seed_everything(training_args["seed"])
 
-    metric_args = dict(task="multiclass", num_classes=num_labels)
-    metrics = dict(
-        train=dict(
-            accuracy=torchmetrics.Accuracy(**metric_args),
-        ),
-        test=dict(
-            accuracy=torchmetrics.Accuracy(**metric_args),
-            precision=torchmetrics.Precision(**metric_args),
-            recall=torchmetrics.Recall(**metric_args),
-            f1=torchmetrics.F1Score(**metric_args),
-        ),
-    )
+    datasets = []
+    num_labels = None
+    input_dimensions = None
+    for dataset_cfg in dataset_cfgs:
+        ds = _load_and_preprocess_dataset(dataset_cfg)
+        datasets.append(ds)
+        num_labels = ds["num_labels"]
+        input_dimensions = ds["input_dimensions"]
 
-    # experiment parameters
-    run_id = f"cross_location__{int(datetime.datetime.now().timestamp())}"
-    save_dir = Path(f"data/runs/{run_id}")
-    model_dir = save_dir / "checkpoints"
+    model_args["input_dimensions"] = input_dimensions
+    model_args["num_classes"] = num_labels
 
-    mlflow.set_tracking_uri("http://127.0.0.1:8080")
-    mlflow.set_experiment(run_id)
-    mlflow.autolog()
+    metrics = _get_metrics(num_labels)
 
-    # load data
-    augsburg = Dataset.from_json(Path("data/config/augsburg.dataset.json"))
-    berlin = Dataset.from_json(Path("data/config/augsburg.dataset.json"))
+    batch_size = training_args["batch_size"]
+    for i in range(len(datasets)):
+        test_sets = datasets.copy()
+        train_set = test_sets.pop(i)
 
-    # todo: change to train only on train portion, add test portion as additional test set
-    xy_augsburg = preprocess(augsburg, return_train_test=False)
-    xy_berlin = preprocess(berlin, return_train_test=False)
+        train_dataset = train_set["train"]
 
-    dataset_pairs = [
-        (xy_augsburg, xy_berlin),
-        (xy_berlin, xy_augsburg),
-    ]
-
-    for i, ((X, y), (X_test, y_test)) in enumerate(dataset_pairs):
-        train_percentage = 1 / n_folds
-        X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(
-            X, y, train_size=train_percentage, random_state=seed
-        )
+        #
+        n = len(train_dataset)
+        idxs = np.arange(n)
+        np.random.shuffle(idxs)
+        n_train = int(n * training_args["train_percentage"])
+        idxs_train = idxs[:n_train]
+        idxs_val = idxs[n_train:]
 
         train_dataloader = _get_dataloader(
-            _to_torch_dataset(X_train, y_train),
+            train_dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=multiprocessing.cpu_count(),
+            idxs=idxs_train,
         )
         val_dataloader = _get_dataloader(
-            _to_torch_dataset(X_val, y_val),
+            train_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=multiprocessing.cpu_count(),
+            idxs=idxs_val,
         )
-        test_dataloader = _get_dataloader(
-            _to_torch_dataset(X_test, y_test),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=multiprocessing.cpu_count(),
+        test_dataloader = [
+            _get_dataloader(
+                ds["test"],
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=min(multiprocessing.cpu_count(), 6),
+            )
+            for ds in test_sets
+        ]
+        test_dataloader.append(
+            _get_dataloader(
+                train_set["test"],
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=min(multiprocessing.cpu_count(), 6),
+            )
         )
 
         meta_data = {
+            "experiment_name": experiment_name,
             "run_id": run_id,
-            "seed": seed,
-            "datasets": {
-                "train": i,
-                "validation": i,
-                "test": (i + 1) % len(dataset_pairs),
-            },
+            "seed": training_args["seed"],
+            "datasets": " | ".join([ds["name"] for ds in datasets])
         }
-        model = LitSGUMLPMixer(model_args, optimizer_args, metrics, meta_data=meta_data)
-        checkpoint_cb = lightning.pytorch.callbacks.ModelCheckpoint(
-            filename=f"{i}" + "_{epoch}-{step}",
-            save_top_k=1,
-            monitor="val_f1",
+
+        run_train_test(
+            train_dataloader,
+            model_args,
+            trainer_args,
+            optimizer_args,
+            metrics,
+            meta_data,
+            val_dataloader,
+            test_dataloader,
         )
-        trainer = lightning.Trainer(
-            default_root_dir=save_dir,
-            deterministic=True,
-            accelerator="auto",
-            max_epochs=n_epochs,
-            callbacks=[checkpoint_cb],
-        )
-        trainer.fit(model, train_dataloader, val_dataloader)
-        trainer.test(model, test_dataloader)

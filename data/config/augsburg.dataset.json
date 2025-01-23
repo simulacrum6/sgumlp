@@ -7,5 +7,9 @@
         "data_SAR_HR.mat"
     ],
     "labels_file": "TrainImage.mat",
-    "labels_file_test": "TestImage.mat"
+    "labels_file_test": "TestImage.mat",
+    "na_label": 0,
+    "preprocessing": [
+        {"pca": ["data_HS_LR"]}
+    ]
 }
