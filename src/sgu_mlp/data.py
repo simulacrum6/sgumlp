@@ -1,12 +1,17 @@
+import functools
 import typing
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import scipy.io as sio
 import sklearn
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
+import rasterio
+
+import torch
 
 from .config import DatasetConfig
 
@@ -20,6 +25,10 @@ def _load_image(fp: Path | str):
     fp = Path(fp)
     return np.array(Image.open(fp))
 
+def _load_rasterio(fp: Path | str):
+    with open(fp, "rb") as f:
+        with rasterio.open(f) as src:
+            return src.read()
 
 def _load_source(fp: Path | str):
     fp = Path(fp)
@@ -38,6 +47,67 @@ def _load_feature(fp: Path | str):
         matrix = np.expand_dims(matrix, axis=-1)
 
     return Feature(name, matrix)
+
+class PatchDataset(torch.utils.data.Dataset):
+    def __init__(self, data_root, input_img_fps, target_img_fps, image_dimensions=(128, 128), patch_size=9, pad_value=0, cache_size=0):
+        super().__init__()
+        self.data_root = Path(data_root)
+        self.input_img_fps = list(input_img_fps)
+        self.target_img_fps = list(target_img_fps)
+
+        self.cache_size = cache_size
+        self._load_images = functools.lru_cache(maxsize=self.cache_size)(self._load_images)
+
+        self.patch_size = patch_size
+        self.pad_value = pad_value
+
+        self.height = image_dimensions[0]
+        self.width = image_dimensions[1]
+
+
+    @property
+    def pad_size(self):
+        return self.patch_size // 2
+
+    @property
+    def num_pixels(self):
+        return self.height * self.width
+
+    @property
+    def num_images(self):
+        return len(self.input_img_fps)
+
+    def __len__(self):
+        return self.num_images * self.num_pixels
+
+    def _get_paths(self, idx):
+        i = idx // self.num_pixels
+        return (self.input_img_fps[i], self.target_img_fps[i])
+
+    def _load_images(self, image_fp: str, target_img_fp: str):
+        image_fp = self.data_root / image_fp
+        target_img_fp = self.data_root / target_img_fp
+        img = _load_rasterio(image_fp)
+        target = _load_rasterio(target_img_fp)
+
+        pad_args = dict(pad_width=((0, 0), (self.pad_size, self.pad_size), (self.pad_size, self.pad_size)), mode="constant", constant_values=self.pad_value)
+        return np.pad(img, **pad_args), np.pad(target, **pad_args)
+
+    def load_images(self, idx):
+        image_fp, target_img_fp = self._get_paths(idx)
+        return self._load_images(image_fp, target_img_fp)
+
+    def __getitem__(self, idx):
+        img, target = self.load_images(idx)
+
+        patch_idx = idx % self.num_pixels
+        h = patch_idx // self.height
+        w = patch_idx % self.width
+        patch = img[:, h:h + self.patch_size, w:w + self.patch_size]
+        mask = target[:, h, w]
+        return torch.from_numpy(patch).float(), torch.from_numpy(mask).float()
+
+
 
 
 def _is_valid(a, na_value):

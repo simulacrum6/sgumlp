@@ -31,6 +31,7 @@ torchmetrics = "^1.6.1"
 gdown = { version = "^5.2.0", optional = true }
 patool = { version = "^3.1.0", optional = true }
 mlflow = "^2.20.0"
+rasterio = "^1.4.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
