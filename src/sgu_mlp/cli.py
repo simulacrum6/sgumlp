@@ -13,9 +13,11 @@ import sklearn.model_selection
 import torch
 import torchmetrics
 from sklearn.model_selection import KFold
+import pandas as pd
+from torch.utils.data import DataLoader
 
 from sgu_mlp.config import DatasetConfig
-from sgu_mlp.data import Dataset, preprocess
+from sgu_mlp.data import Dataset, preprocess, PatchDataset
 from sgu_mlp.models import LitSGUMLPMixer
 
 from collections import namedtuple
@@ -90,8 +92,9 @@ def run_train_test(
     dataloader_val: torch.utils.data.DataLoader = None,
     dataloader_test: torch.utils.data.Dataset | list = None,
     model_class=LitSGUMLPMixer,
+    criterion=None,
 ):
-    model = model_class(model_args, optimizer_args, metrics, meta_data=meta_data)
+    model = model_class(model_args, optimizer_args, metrics, criterion=criterion, meta_data=meta_data)
     trainer = lightning.Trainer(**trainer_args)
     trainer.fit(model, dataloader_train, dataloader_val)
     if dataloader_test is None:
@@ -101,7 +104,6 @@ def run_train_test(
             trainer.test(model, dl)
     else:
         trainer.test(model, dataloader_test)
-
 
 
 def run_cv(
@@ -201,6 +203,108 @@ def _load_and_preprocess_dataset(dataset_cfg: dict):
         "num_labels": dataset.num_labels,
         "input_dimensions": X_train.shape[1:],
     }
+
+
+def mulc_vbwva_experiment(
+    experiment_cfg_path: str = "data/config/mulc_vbwva.experiment.json",
+):
+    cfg, run_id, save_dir, logger = setup_experiment(experiment_cfg_path)
+
+    experiment_name = cfg["name"]
+    training_args = cfg["training"]
+    model_args = cfg["model"]["args"]
+    optimizer_args = cfg["optimizer"]["args"]
+    dataset_cfgs = cfg["datasets"]
+    trainer_args = dict(
+        default_root_dir=save_dir,
+        deterministic=True,
+        accelerator="auto",
+        max_epochs=training_args["epochs"],
+        logger=logger,
+    )
+
+    lightning.seed_everything(training_args["seed"])
+
+
+    ds_cfg = dataset_cfgs["train"]
+
+    patch_size = model_args["input_dimensions"][0]
+    cache_size = cfg.get("cache_size", 0)
+    root_dir = Path(ds_cfg["base_dir"])
+    df = pd.read_csv(root_dir / ds_cfg["path_df"])
+
+    max_imgs = ds_cfg.get("max_imgs")
+    if max_imgs is not None:
+        df = df.sample(n=max_imgs)
+
+    img_fps, mask_fps = df[["image_filepath", "mask_filepath"]].values.T
+
+    dataset = PatchDataset(
+        root_dir,
+        img_fps,
+        mask_fps,
+        ds_cfg["image_dimensions"],
+        patch_size=patch_size,
+        pad_value=ds_cfg["na_value"],
+        cache_size=cache_size,
+    )
+
+    n = len(dataset)
+    idxs = np.arange(n)
+    np.random.shuffle(idxs)
+    n_train = int(n * training_args["train_percentage"])
+    idxs_train = idxs[:n_train]
+    idxs_val = idxs[n_train:]
+
+    dataloader_train = DataLoader(
+        dataset=dataset,
+        batch_size=training_args["batch_size"],
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_train),
+        num_workers=4,
+        pin_memory=True,
+    )
+    dataloader_val = DataLoader(
+        dataset=dataset,
+        batch_size=training_args["batch_size"],
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_val),
+        num_workers=4,
+        pin_memory=True,
+    )
+
+
+    meta_data = {
+        "experiment_name": experiment_name,
+        "run_id": run_id,
+        "seed": training_args["seed"],
+        "datasets": ds_cfg["name"],
+    }
+
+    def loss_fn(y_pred, y_true):
+        kld = torch.nn.KLDivLoss(reduction="batchmean")
+        softmax = torch.nn.LogSoftmax(dim=1)
+        return kld(softmax(y_pred), y_true)
+
+    metrics = {
+        "train": {
+            "loss": loss_fn,
+        },
+        "test": {
+            "loss": loss_fn,
+        }
+    }
+    metrics = _get_metrics()
+
+    run_train_test(
+        dataloader_train,
+        model_args,
+        trainer_args,
+        optimizer_args,
+        metrics,
+        meta_data,
+        dataloader_val,
+        None,
+        criterion=loss_fn
+    )
 
 
 def cv_experiment(
@@ -336,7 +440,7 @@ def ood_experiment(
             "experiment_name": experiment_name,
             "run_id": run_id,
             "seed": training_args["seed"],
-            "datasets": " | ".join([ds["name"] for ds in datasets])
+            "datasets": " | ".join([ds["name"] for ds in datasets]),
         }
 
         run_train_test(

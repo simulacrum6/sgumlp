@@ -25,10 +25,12 @@ def _load_image(fp: Path | str):
     fp = Path(fp)
     return np.array(Image.open(fp))
 
+
 def _load_rasterio(fp: Path | str):
     with open(fp, "rb") as f:
         with rasterio.open(f) as src:
             return src.read()
+
 
 def _load_source(fp: Path | str):
     fp = Path(fp)
@@ -48,22 +50,33 @@ def _load_feature(fp: Path | str):
 
     return Feature(name, matrix)
 
+
 class PatchDataset(torch.utils.data.Dataset):
-    def __init__(self, data_root, input_img_fps, target_img_fps, image_dimensions=(128, 128), patch_size=9, pad_value=0, cache_size=0):
+    def __init__(
+        self,
+        data_root,
+        input_img_fps,
+        target_img_fps,
+        image_dimensions=(128, 128),
+        patch_size=9,
+        pad_value=0,
+        cache_size=0,
+    ):
         super().__init__()
         self.data_root = Path(data_root)
         self.input_img_fps = list(input_img_fps)
         self.target_img_fps = list(target_img_fps)
 
         self.cache_size = cache_size
-        self._load_images = functools.lru_cache(maxsize=self.cache_size)(self._load_images)
+        self._load_images = functools.lru_cache(maxsize=self.cache_size)(
+            self._load_images
+        )
 
         self.patch_size = patch_size
         self.pad_value = pad_value
 
         self.height = image_dimensions[0]
         self.width = image_dimensions[1]
-
 
     @property
     def pad_size(self):
@@ -90,7 +103,15 @@ class PatchDataset(torch.utils.data.Dataset):
         img = _load_rasterio(image_fp)
         target = _load_rasterio(target_img_fp)
 
-        pad_args = dict(pad_width=((0, 0), (self.pad_size, self.pad_size), (self.pad_size, self.pad_size)), mode="constant", constant_values=self.pad_value)
+        pad_args = dict(
+            pad_width=(
+                (0, 0),
+                (self.pad_size, self.pad_size),
+                (self.pad_size, self.pad_size),
+            ),
+            mode="constant",
+            constant_values=self.pad_value,
+        )
         return np.pad(img, **pad_args), np.pad(target, **pad_args)
 
     def load_images(self, idx):
@@ -103,11 +124,9 @@ class PatchDataset(torch.utils.data.Dataset):
         patch_idx = idx % self.num_pixels
         h = patch_idx // self.height
         w = patch_idx % self.width
-        patch = img[:, h:h + self.patch_size, w:w + self.patch_size]
+        patch = img[:, h : h + self.patch_size, w : w + self.patch_size]
         mask = target[:, h, w]
         return torch.from_numpy(patch).float(), torch.from_numpy(mask).float()
-
-
 
 
 def _is_valid(a, na_value):

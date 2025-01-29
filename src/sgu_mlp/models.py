@@ -361,6 +361,7 @@ class SGUMLPMixer(torch.nn.Module):
         embedding_kernel_size=1,
         num_classes=0,
         dropout=0.0,
+        channels_first=False,
     ):
         super().__init__()
         self.patch_dimensions = input_dimensions
@@ -372,6 +373,7 @@ class SGUMLPMixer(torch.nn.Module):
         if patch_height % 2 == 0:
             raise ValueError("Patch height must be odd")
 
+        self.channels_first = channels_first
         self.num_classes = num_classes
         self.patch_size = patch_height
         self.embedding_kernel_size = embedding_kernel_size
@@ -411,7 +413,8 @@ class SGUMLPMixer(torch.nn.Module):
 
     def forward(self, x):
         b = x.shape[0]
-        x = x.moveaxis(-1, 1)
+        if not self.channels_first:
+            x = x.moveaxis(-1, 1)
         residual = x
         x = self.dwc(x)
         x = x + (residual * self.residual_weight)
@@ -435,14 +438,25 @@ def _default_metrics(num_classes):
 
 
 class LitSGUMLPMixer(lightning.LightningModule):
-    def __init__(self, model_params, optimizer_params, metrics=None, *args, **kwargs):
+    def __init__(
+        self,
+        model_params,
+        optimizer_params,
+        metrics=None,
+        criterion=None,
+        *args,
+        **kwargs,
+    ):
         super().__init__()
-        self.save_hyperparameters(ignore=["metrics"])
+        self.save_hyperparameters(ignore=["metrics", "criterion"])
 
         if metrics is None:
             metrics = _default_metrics(self.hparams.model_params["num_classes"])
         self.model = SGUMLPMixer(**model_params)
-        self.criterion = torch.nn.CrossEntropyLoss()
+        if criterion is None:
+            self.criterion = torch.nn.CrossEntropyLoss()
+        else:
+            self.criterion = criterion
         self.optimizer_cls = torch.optim.AdamW
 
         self.train_metrics = torchmetrics.MetricCollection(

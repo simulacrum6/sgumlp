@@ -16,6 +16,7 @@ name = "sgu-mlp"
 replication = 'sgu_mlp.cli:cv_experiment'
 cross_location = 'sgu_mlp.cli:ood_experiment'
 download_datasets = 'sgu_mlp.cli:download_datasets'
+mulc_vbwva = 'sgu_mlp.cli:mulc_vbwva_experiment'
 
 [tool.poetry.dependencies]
 python = "^3.10"
