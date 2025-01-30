@@ -204,6 +204,34 @@ def _load_and_preprocess_dataset(dataset_cfg: dict):
         "input_dimensions": X_train.shape[1:],
     }
 
+class CustomCosineSimilarity(torchmetrics.CosineSimilarity):
+    def update(self, preds, target):
+        target = torch.nan_to_num(target, 0.0)
+
+        eps = 1e-8
+        target = target + eps
+
+        target = target / target.sum(1, keepdim=True)
+
+        preds_proba = torch.softmax(preds, 1) + eps
+        preds_proba = preds_proba / preds_proba.sum(1, keepdim=True)
+        super().update(preds_proba, target)
+
+
+class CustomKLDivergence(torchmetrics.KLDivergence):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.log_prob = False
+
+    def update(self, preds, target):
+        target = torch.nan_to_num(target, 0.0)
+        eps = 1e-8
+        target = target + eps
+        target = target / target.sum(1, keepdim=True)
+        preds_proba = torch.softmax(preds, 1) + eps
+        preds_proba = preds_proba / preds_proba.sum(1, keepdim=True)
+        super().update(preds_proba, target)
+
 
 def mulc_vbwva_experiment(
     experiment_cfg_path: str = "data/config/mulc_vbwva.experiment.json",
@@ -233,7 +261,7 @@ def mulc_vbwva_experiment(
     root_dir = Path(ds_cfg["base_dir"])
     df = pd.read_csv(root_dir / ds_cfg["path_df"])
 
-    max_imgs = ds_cfg.get("max_imgs")
+    max_imgs = ds_cfg.get("max_images")
     if max_imgs is not None:
         df = df.sample(n=max_imgs)
 
@@ -284,15 +312,19 @@ def mulc_vbwva_experiment(
         softmax = torch.nn.LogSoftmax(dim=1)
         return kld(softmax(y_pred), y_true)
 
+    ce = torch.nn.CrossEntropyLoss()
+
     metrics = {
         "train": {
-            "loss": loss_fn,
+            "cosine": CustomCosineSimilarity(reduction="mean"),
+            "mse": torchmetrics.MeanSquaredError(),
         },
         "test": {
-            "loss": loss_fn,
+            "cosine": CustomCosineSimilarity(reduction="mean"),
+            "kld": CustomKLDivergence(reduction="mean"),
+            "mse": torchmetrics.MeanSquaredError(),
         }
     }
-    metrics = _get_metrics()
 
     run_train_test(
         dataloader_train,
@@ -303,7 +335,7 @@ def mulc_vbwva_experiment(
         meta_data,
         dataloader_val,
         None,
-        criterion=loss_fn
+        criterion=ce
     )
 
 

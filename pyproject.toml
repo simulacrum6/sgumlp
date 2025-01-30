@@ -38,6 +38,7 @@ rasterio = "^1.4.3"
 pytest = "^8.3.4"
 hypothesis = "^6.123.7"
 black = "^24.10.0"
+seaborn = "^0.13.2"
 
 [tool.poetry.extras]
 experiments = ["gdown", "patool"]
