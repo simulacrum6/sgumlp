@@ -173,10 +173,10 @@ def setup_experiment(experiment_cfg_path):
         experiment_name, run_id, tracking_uri=tracking_uri, save_local=save_local
     )
 
-    print("Running experiment...")
-    print(experiment_name)
-    print(run_id)
-    print(tracking_uri)
+    print(f"Running experiment '{experiment_name}' ({run_id})")
+    print(f"logging results to {tracking_uri}")
+    print("config:")
+    print(cfg)
 
     return (
         cfg,
@@ -271,10 +271,8 @@ def mulc_vbwva_experiment(
         root_dir,
         img_fps,
         mask_fps,
-        ds_cfg["image_dimensions"],
         patch_size=patch_size,
         pad_value=ds_cfg["na_value"],
-        cache_size=cache_size,
     )
 
     n = len(dataset)
@@ -288,14 +286,14 @@ def mulc_vbwva_experiment(
         dataset=dataset,
         batch_size=training_args["batch_size"],
         sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_train),
-        num_workers=4,
+        num_workers=training_args.get("num_workers"),
         pin_memory=True,
     )
     dataloader_val = DataLoader(
         dataset=dataset,
         batch_size=training_args["batch_size"],
         sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_val),
-        num_workers=4,
+        num_workers=training_args.get("num_workers"),
         pin_memory=True,
     )
 

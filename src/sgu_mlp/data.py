@@ -10,6 +10,7 @@ from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
 import rasterio
+from tqdm import tqdm
 
 import torch
 
@@ -57,26 +58,39 @@ class PatchDataset(torch.utils.data.Dataset):
         data_root,
         input_img_fps,
         target_img_fps,
-        image_dimensions=(128, 128),
         patch_size=9,
         pad_value=0,
-        cache_size=0,
+        mmap_dir=None,
+        mmap_max_images=None,
+        mmap_init_flush_every=100,
+        mmap_init_overwrite=False,
     ):
         super().__init__()
         self.data_root = Path(data_root)
-        self.input_img_fps = list(input_img_fps)
-        self.target_img_fps = list(target_img_fps)
-
-        self.cache_size = cache_size
-        self._load_images = functools.lru_cache(maxsize=self.cache_size)(
-            self._load_images
-        )
+        self.input_img_fps = np.asarray(input_img_fps)
+        self.target_img_fps = np.asarray(target_img_fps)
 
         self.patch_size = patch_size
         self.pad_value = pad_value
 
-        self.height = image_dimensions[0]
-        self.width = image_dimensions[1]
+        self._sample_img, self._sample_target = self._load_images(input_img_fps[0], target_img_fps[0])
+        if not (self._sample_img.shape[1:] == self._sample_target.shape[1:]):
+            raise ValueError("Shape of input and target images do not match")
+
+        if mmap_dir is None:
+            mmap_dir = self.data_root / "mmap"
+
+        if mmap_max_images is None:
+            mmap_max_images = self.num_images
+
+        self.mmap_max_images = mmap_max_images
+        self.mmap_init_flush_every = mmap_init_flush_every
+        self.mmap_init_overwrite = mmap_init_overwrite
+        if self.mmap_max_images > 0:
+            self.mmap_dir = Path(mmap_dir)
+            self._mmap_images, self._mmap_targets, self._mmap_images_path, self._mmap_targets.path = self._init_mmaps(flush_every=mmap_init_flush_every, overwrite=mmap_init_overwrite)
+        else:
+            self._mmap_images, self._mmap_targets, self._mmap_images_path, self._mmap_targets.path, self.mmap_dir = None
 
     @property
     def pad_size(self):
@@ -88,13 +102,84 @@ class PatchDataset(torch.utils.data.Dataset):
 
     @property
     def num_images(self):
-        return len(self.input_img_fps)
+        return self.input_img_fps.shape[0]
+
+    @property
+    def height(self):
+        return self._sample_img.shape[1] - 2 * self.pad_size
+
+    @property
+    def width(self):
+        return self._sample_img.shape[2] - 2 * self.pad_size
+
+    @property
+    def image_channels(self):
+        return self._sample_img.shape[0]
+
+    @property
+    def target_channels(self):
+        return self._sample_target.shape[0]
+
+    @property
+    def image_dimensions(self):
+        return self.image_channels, self.height, self.width
+
+    @property
+    def target_dimensions(self):
+        return self.target_channels, self.height, self.width
 
     def __len__(self):
         return self.num_images * self.num_pixels
 
-    def _get_paths(self, idx):
-        i = idx // self.num_pixels
+    def _init_mmaps(self, flush_every=100, overwrite=False):
+        map_params = [
+            ("input.mmap", (self.mmap_max_images, *self._sample_img.shape), self._sample_img.dtype),
+            ("target.mmap", (self.mmap_max_images, *self._sample_target.shape), self._sample_target.dtype),
+        ]
+        self.mmap_dir.mkdir(parents=True, exist_ok=True)
+
+        maps = []
+        paths = []
+        for filename, shape, dtype in map_params:
+            filepath = self.mmap_dir / filename
+            paths.append(filepath)
+            if not filepath.exists():
+                arr = np.memmap(
+                    filepath,
+                    dtype=dtype,
+                    mode='w+',
+                    shape=shape
+                )
+                arr.flush()
+
+            else:
+                arr = np.memmap(
+                    filepath,
+                    dtype=dtype,
+                    mode='r+',
+                    shape=shape
+                )
+            maps.append(arr)
+
+        mmap_images, mmap_targets = maps
+
+        if not all([path.exists() for path in paths]) or overwrite:
+            for i in tqdm(range(self.mmap_max_images), total=self.mmap_max_images, unit="image pairs"):
+                img, target = self.load_images(i)
+                mmap_images[i] = img
+                mmap_targets[i] = target
+
+                if i % flush_every == 0:
+                    mmap_images.flush()
+                    mmap_targets.flush()
+
+            mmap_images.flush()
+            mmap_targets.flush()
+
+        path_mmap_img, path_mmap_target = paths
+        return mmap_images, mmap_targets, path_mmap_img, path_mmap_target
+
+    def _get_paths(self, i):
         return (self.input_img_fps[i], self.target_img_fps[i])
 
     def _load_images(self, image_fp: str, target_img_fp: str):
@@ -114,19 +199,26 @@ class PatchDataset(torch.utils.data.Dataset):
         )
         return np.pad(img, **pad_args), np.pad(target, **pad_args)
 
-    def load_images(self, idx):
-        image_fp, target_img_fp = self._get_paths(idx)
+    def load_images(self, i):
+        image_fp, target_img_fp = self._get_paths(i)
         return self._load_images(image_fp, target_img_fp)
 
     def __getitem__(self, idx):
-        img, target = self.load_images(idx)
-
+        i = idx // self.num_pixels
         patch_idx = idx % self.num_pixels
         h = patch_idx // self.height
+        h_ = h + self.patch_size
         w = patch_idx % self.width
-        patch = img[:, h : h + self.patch_size, w : w + self.patch_size]
+        w_ = w + self.patch_size
+
+        if i < self.mmap_max_images:
+            img, target = self._mmap_images[i], self._mmap_targets[i]
+        else:
+            img, target = self.load_images(i)
+        patch = img[:, h:h_, w:w_]
         mask = target[:, h, w]
-        return torch.from_numpy(patch).float(), torch.from_numpy(mask).float()
+
+        return torch.tensor(patch).float(), torch.tensor(mask).float()
 
 
 def _is_valid(a, na_value):
