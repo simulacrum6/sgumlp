@@ -5,22 +5,18 @@ from pathlib import Path
 
 import gdown
 import lightning
-import mlflow
 import numpy as np
+import pandas as pd
 import patoolib
 import requests
-import sklearn.model_selection
 import torch
 import torchmetrics
 from sklearn.model_selection import KFold
-import pandas as pd
 from torch.utils.data import DataLoader
 
 from sgu_mlp.config import DatasetConfig
 from sgu_mlp.data import Dataset, preprocess, PatchDataset
 from sgu_mlp.models import LitSGUMLPMixer
-
-from collections import namedtuple
 
 
 def _get_dataloader(dataset, batch_size, idxs=None, shuffle=False, num_workers=1):
@@ -94,7 +90,9 @@ def run_train_test(
     model_class=LitSGUMLPMixer,
     criterion=None,
 ):
-    model = model_class(model_args, optimizer_args, metrics, criterion=criterion, meta_data=meta_data)
+    model = model_class(
+        model_args, optimizer_args, metrics, criterion=criterion, meta_data=meta_data
+    )
     trainer = lightning.Trainer(**trainer_args)
     trainer.fit(model, dataloader_train, dataloader_val)
     if dataloader_test is None:
@@ -204,6 +202,7 @@ def _load_and_preprocess_dataset(dataset_cfg: dict):
         "input_dimensions": X_train.shape[1:],
     }
 
+
 class CustomCosineSimilarity(torchmetrics.CosineSimilarity):
     def update(self, preds, target):
         target = torch.nan_to_num(target, 0.0)
@@ -253,7 +252,6 @@ def mulc_vbwva_experiment(
 
     lightning.seed_everything(training_args["seed"])
 
-
     ds_cfg = dataset_cfgs["train"]
 
     patch_size = model_args["input_dimensions"][0]
@@ -297,7 +295,6 @@ def mulc_vbwva_experiment(
         pin_memory=True,
     )
 
-
     meta_data = {
         "experiment_name": experiment_name,
         "run_id": run_id,
@@ -321,7 +318,7 @@ def mulc_vbwva_experiment(
             "cosine": CustomCosineSimilarity(reduction="mean"),
             "kld": CustomKLDivergence(reduction="mean"),
             "mse": torchmetrics.MeanSquaredError(),
-        }
+        },
     }
 
     run_train_test(
@@ -333,7 +330,7 @@ def mulc_vbwva_experiment(
         meta_data,
         dataloader_val,
         None,
-        criterion=ce
+        criterion=ce,
     )
 
 

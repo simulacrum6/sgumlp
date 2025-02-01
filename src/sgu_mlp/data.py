@@ -1,18 +1,15 @@
-import functools
 import typing
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import rasterio
 import scipy.io as sio
 import sklearn
+import torch
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
-import rasterio
 from tqdm import tqdm
-
-import torch
 
 from .config import DatasetConfig
 
@@ -73,7 +70,9 @@ class PatchDataset(torch.utils.data.Dataset):
         self.patch_size = patch_size
         self.pad_value = pad_value
 
-        self._sample_img, self._sample_target = self._load_images(input_img_fps[0], target_img_fps[0])
+        self._sample_img, self._sample_target = self._load_images(
+            input_img_fps[0], target_img_fps[0]
+        )
         if not (self._sample_img.shape[1:] == self._sample_target.shape[1:]):
             raise ValueError("Shape of input and target images do not match")
 
@@ -88,9 +87,22 @@ class PatchDataset(torch.utils.data.Dataset):
         self.mmap_init_overwrite = mmap_init_overwrite
         if self.mmap_max_images > 0:
             self.mmap_dir = Path(mmap_dir)
-            self._mmap_images, self._mmap_targets, self._mmap_images_path, self._mmap_targets.path = self._init_mmaps(flush_every=mmap_init_flush_every, overwrite=mmap_init_overwrite)
+            (
+                self._mmap_images,
+                self._mmap_targets,
+                self._mmap_images_path,
+                self._mmap_targets.path,
+            ) = self._init_mmaps(
+                flush_every=mmap_init_flush_every, overwrite=mmap_init_overwrite
+            )
         else:
-            self._mmap_images, self._mmap_targets, self._mmap_images_path, self._mmap_targets.path, self.mmap_dir = None
+            (
+                self._mmap_images,
+                self._mmap_targets,
+                self._mmap_images_path,
+                self._mmap_targets.path,
+                self.mmap_dir,
+            ) = None
 
     @property
     def pad_size(self):
@@ -133,8 +145,16 @@ class PatchDataset(torch.utils.data.Dataset):
 
     def _init_mmaps(self, flush_every=100, overwrite=False):
         map_params = [
-            ("input.mmap", (self.mmap_max_images, *self._sample_img.shape), self._sample_img.dtype),
-            ("target.mmap", (self.mmap_max_images, *self._sample_target.shape), self._sample_target.dtype),
+            (
+                "input.mmap",
+                (self.mmap_max_images, *self._sample_img.shape),
+                self._sample_img.dtype,
+            ),
+            (
+                "target.mmap",
+                (self.mmap_max_images, *self._sample_target.shape),
+                self._sample_target.dtype,
+            ),
         ]
         self.mmap_dir.mkdir(parents=True, exist_ok=True)
 
@@ -144,27 +164,21 @@ class PatchDataset(torch.utils.data.Dataset):
             filepath = self.mmap_dir / filename
             paths.append(filepath)
             if not filepath.exists():
-                arr = np.memmap(
-                    filepath,
-                    dtype=dtype,
-                    mode='w+',
-                    shape=shape
-                )
+                arr = np.memmap(filepath, dtype=dtype, mode="w+", shape=shape)
                 arr.flush()
 
             else:
-                arr = np.memmap(
-                    filepath,
-                    dtype=dtype,
-                    mode='r+',
-                    shape=shape
-                )
+                arr = np.memmap(filepath, dtype=dtype, mode="r+", shape=shape)
             maps.append(arr)
 
         mmap_images, mmap_targets = maps
 
         if not all([path.exists() for path in paths]) or overwrite:
-            for i in tqdm(range(self.mmap_max_images), total=self.mmap_max_images, unit="image pairs"):
+            for i in tqdm(
+                range(self.mmap_max_images),
+                total=self.mmap_max_images,
+                unit="image pairs",
+            ):
                 img, target = self.load_images(i)
                 mmap_images[i] = img
                 mmap_targets[i] = target
@@ -421,30 +435,41 @@ class Dataset:
 
 
 def reduce_dimensions(
-    image: np.ndarray, num_components=15, valid_indices=None, return_pca=False
+    image: np.ndarray, num_components=15, channel_dim=-1, train_mask=None, pca=None
 ):
-    X = np.array(image, copy=True)
-    h, w, c = X.shape
+    channels_last = channel_dim == -1 or channel_dim == (image.ndim - 1)
 
-    if valid_indices is not None:
-        X = X[valid_indices]
+    if not channels_last:
+        image = np.swapaxes(image, channel_dim, -1)
+        if train_mask is not None and train_mask.shape == image.shape:
+            train_mask = np.swapaxes(train_mask, channel_dim, -1)
 
-    if X.ndim > 2:
-        X = X.reshape(-1, c)
+    image_dimensions = image.shape[:-1]
+    c = image.shape[-1]
 
-    pca = PCA(n_components=num_components, whiten=True).fit(X)
-    X_reduced = pca.transform(image.reshape(-1, c)).reshape(h, w, num_components)
+    if train_mask is not None:
+        X = image[train_mask]
+    else:
+        X = image
 
-    if return_pca:
-        return X_reduced, pca
+    X = X.reshape(-1, c)
 
-    return X_reduced
+    if pca is None:
+        pca = PCA(n_components=num_components, whiten=True).fit(X)
+
+    X = pca.transform(image.reshape(-1, c)).reshape(*image_dimensions, num_components)
+
+    if not channels_last:
+        X = np.swapaxes(X, -1, channel_dim)
+
+    return X, pca
 
 
 def preprocess(
     dataset: Dataset,
     image_dtype=np.float32,
     num_hs_components=15,
+    pca=None,
     return_train_test=True,
 ):
     train_mask = dataset.split_mask("train")
@@ -454,7 +479,7 @@ def preprocess(
         hs_feat = dataset.feature("data_HS_LR")
         hs = hs_feat.data
         n_components = 15
-        hs_pca, pca = reduce_dimensions(hs, n_components, train_mask, return_pca=True)
+        hs_pca, pca = reduce_dimensions(hs, n_components, train_mask=train_mask, pca=pca)
         name = "data_HS_LR_pca15"
         dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
 
