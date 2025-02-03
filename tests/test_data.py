@@ -1,6 +1,6 @@
 import numpy as np
 
-from sgu_mlp.data import patchify, reduce_dimensions
+from sgu_mlp.data import patchify, reduce_dimensions, load_benchmark_dataset, preprocess
 
 
 def test_patchify(image_and_labels):
@@ -76,3 +76,72 @@ def test_reduce_dimensions(hs_image):
     )
     assert scaled_imgs_2.shape == (b, num_components, h, w)
     assert ~np.all(scaled_imgs_2 == scaled_imgs)
+
+
+def test_load_benchmark_dataset(benchmark_dataset_info):
+    base_dir, feature_files, label_files, na_value = benchmark_dataset_info
+
+    features, labels = load_benchmark_dataset(
+        base_dir, feature_files, label_files, na_value=na_value
+    )
+    assert len(features) == len(feature_files)
+    assert len(labels) == len(label_files)
+
+    label_files = [label_files[0], None]
+    features, labels = load_benchmark_dataset(
+        base_dir, feature_files, label_files, na_value=na_value
+    )
+    assert len(features) == len(feature_files)
+    assert len(labels) == len(label_files)
+
+    train_labels, test_labels = labels.values()
+    assert train_labels.shape == test_labels.shape
+    assert np.all(test_labels == na_value)
+
+
+def test_preprocess(benchmark_dataset):
+    features, labels, na_value = benchmark_dataset
+
+    c = sum(feat.shape[-1] for feat in features.values())
+    h, w, k = labels["train"].shape
+    n = h * w
+    p = 11
+
+    X, y, idxs, label_encoder, pcas = preprocess(
+        features, labels, patch_size=p, na_value=na_value, features_to_process=None
+    )
+    assert y.shape == (n,)
+    assert X.shape == (n, c, p, p)
+    for idx in idxs:
+        assert X[idx].shape[0] == y[idx].shape[0]
+        assert X[idx].shape[1:] == X.shape[1:]
+
+    assert pcas == {}
+    assert label_encoder is not None
+
+    num_components = 2
+    name, feat = next(iter(features.items()))
+    features_to_process = [name]
+    c_ = c - feat.shape[-1] + num_components
+    X, y, idxs, label_encoder, pcas = preprocess(
+        features,
+        labels,
+        patch_size=p,
+        na_value=na_value,
+        features_to_process=features_to_process,
+        num_components=num_components,
+    )
+
+    assert name in pcas
+    assert X.shape[1] == c_
+    X_, _, _, _, _ = preprocess(
+        features,
+        labels,
+        patch_size=p,
+        na_value=na_value,
+        num_components=num_components,
+        features_to_process=features_to_process,
+        pcas=pcas,
+    )
+
+    assert np.all(X == X_)

@@ -1,4 +1,6 @@
+import numpy as np
 import pytest
+import rasterio
 import torch
 
 
@@ -129,12 +131,20 @@ def test_experiment_cfg():
         "datasets": {
             "train": {
                 "name": "augsburg",
-                "base_dir": "./data/Datasets/HS-SAR-DSM Augsburg",
-                "feature_files": ["data_DSM.mat", "data_HS_LR.mat", "data_SAR_HR.mat"],
-                "labels_file": "TrainImage.mat",
-                "labels_file_test": "TestImage.mat",
-                "na_label": 0,
-                "preprocessing": [{"pca": ["data_HS_LR"]}],
+                "files": {
+                    "base_dir": "./data/Datasets/HS-SAR-DSM Augsburg",
+                    "feature_files": [
+                        "data_DSM.mat",
+                        "data_HS_LR.mat",
+                        "data_SAR_HR.mat",
+                    ],
+                    "label_files": ["TrainImage.mat", "TestImage.mat"],
+                },
+                "preprocessing": {
+                    "features_to_process": ["data_HS_LR"],
+                    "num_components": 15,
+                },
+                "na_value": 0,
             },
             "validation": None,
             "test": None,
@@ -150,9 +160,9 @@ def test_experiment_cfg():
         "model": {
             "class_name": "litsgumlpmixer",
             "args": {
-                "token_features": 64,
-                "mixer_features_channel": 64,
-                "mixer_features_sequence": 64,
+                "token_features": 16,
+                "mixer_features_channel": 16,
+                "mixer_features_sequence": 16,
                 "dwc_kernels": [1, 3, 5],
                 "embedding_kernel_size": 4,
                 "num_blocks": 1,
@@ -171,3 +181,91 @@ def test_experiment_cfg():
             "test": ["accuracy", "precision", "recall", "f1_score"],
         },
     }
+
+
+@pytest.fixture
+def benchmark_dataset():
+    np.random.seed(27182)
+    classes = 5
+    na_value = 0
+    height, width = 224, 224
+    channels = 8
+    bit_depth = 16
+
+    features = []
+    for i in range(3):
+        features.append(
+            np.random.randint(0, 2**bit_depth, size=(height, width, channels)).astype(
+                np.uint16
+            )
+        )
+
+    targets = np.random.randint(0, classes + 1, (height, width, 1)).astype(np.float32)
+
+    n_pixels = height * width
+    idxs = np.array(list(np.ndindex((height, width))))
+    np.random.shuffle(idxs)
+    idxs_train = tuple(idxs[: n_pixels // 2].T)
+    idxs_test = tuple(idxs[n_pixels // 2 :].T)
+
+    targets_train = np.copy(targets)
+    targets_train[idxs_test] = 0
+
+    targets_test = np.copy(targets)
+    targets_test[idxs_train] = 0
+
+    features = {f"feat{i + 1}": feat for i, feat in enumerate(features)}
+    labels = {
+        "train": targets_train,
+        "test": targets_test,
+    }
+
+    return features, labels, na_value
+
+
+@pytest.fixture
+def benchmark_dataset_info(benchmark_dataset, tmp_path):
+    features, labels, na_value = benchmark_dataset
+
+    base_dir = tmp_path / "benchmark_dataset"
+    base_dir.mkdir(exist_ok=True, parents=True)
+
+    profile = {
+        "driver": "GTiff",
+        "nodata": na_value,
+        "compress": "lzw",
+    }
+
+    feature_files = []
+    for feat_name, feat in features.items():
+        height, width, channels = feat.shape
+        profile.update(
+            {
+                "height": height,
+                "width": width,
+                "count": channels,
+                "dtype": feat.dtype.name,
+            }
+        )
+        filename = f"{feat_name}.tif"
+        with rasterio.open(base_dir / filename, "w", **profile) as dst:
+            dst.write(np.swapaxes(feat, 0, -1))
+        feature_files.append(filename)
+
+    label_files = []
+    for split, trgt in labels.items():
+        height, width, channels = trgt.shape
+        profile.update(
+            {
+                "height": height,
+                "width": width,
+                "count": channels,
+                "dtype": trgt.dtype.name,
+            }
+        )
+        filename = f"{split}.tif"
+        with rasterio.open(base_dir / filename, "w", **profile) as dst:
+            dst.write(np.swapaxes(trgt, 0, -1))
+        label_files.append(filename)
+
+    return base_dir, feature_files, label_files, na_value

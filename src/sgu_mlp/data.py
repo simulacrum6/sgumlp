@@ -1,17 +1,15 @@
-import typing
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import rasterio
 import scipy.io as sio
-import sklearn
 import torch
 from PIL import Image
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
-
-from .config import DatasetConfig
 
 
 def _load_matrix(fp: Path | str):
@@ -30,23 +28,48 @@ def _load_rasterio(fp: Path | str):
             return src.read()
 
 
-def _load_source(fp: Path | str):
+def _load_source(fp: Path | str, channel_first=True):
     fp = Path(fp)
-    if fp.suffix == ".mat":
-        return _load_matrix(Path(fp))
+    match fp.suffix:
+        case ".mat":
+            img = _load_matrix(fp)
+        case ".tiff" | ".tif":
+            img = _load_rasterio(fp)
+            if not channel_first:
+                img = np.swapaxes(img, 0, -1)
+        case _:
+            img = _load_image(fp)
+            if channel_first:
+                img = np.swapaxes(img, 0, -1)
+    return img
+
+
+def load_benchmark_dataset(base_dir, feature_files, label_files, na_value=0, name=None):
+    load = partial(_load_source, channel_first=False)
+
+    base_dir = Path(base_dir)
+    feature_files = [Path(feature_file) for feature_file in feature_files]
+    features = {
+        file_name.stem: load(base_dir / file_name) for file_name in feature_files
+    }
+
+    if type(label_files) == str:
+        label_files = [Path(label_files), None]
+
+    if len(label_files) == 1:
+        label_files = [label_files[0], None]
+
+    file_train, file_test = label_files
+    train_labels = load(base_dir / file_train)
+    if file_test is not None:
+        test_labels = load(base_dir / file_test)
     else:
-        return _load_image(Path(fp))
-
-
-def _load_feature(fp: Path | str):
-    fp = Path(fp)
-    matrix = _load_matrix(fp)
-    name = fp.stem
-
-    if matrix.ndim == 2:
-        matrix = np.expand_dims(matrix, axis=-1)
-
-    return Feature(name, matrix)
+        test_labels = np.full_like(train_labels, na_value)
+    labels = {
+        "train": train_labels,
+        "test": test_labels,
+    }
+    return features, labels
 
 
 class PatchDataset(torch.utils.data.Dataset):
@@ -102,7 +125,13 @@ class PatchDataset(torch.utils.data.Dataset):
                 self._mmap_images_path,
                 self._mmap_targets.path,
                 self.mmap_dir,
-            ) = None
+            ) = (
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
 
     @property
     def pad_size(self):
@@ -241,11 +270,8 @@ def _is_valid(a, na_value):
 
 def patchify(
     image: np.ndarray,
-    labels=None,
     patch_size: int = 9,
     pad_value=0,
-    na_value=0,
-    only_valid=True,
 ):
     """Extract square patches centered on each pixel of a 2D or N-D image array.
 
@@ -314,126 +340,6 @@ def patchify(
     return image
 
 
-class Feature:
-    def __init__(self, name, data: np.ndarray, parent_feature=None, metadata=None):
-        self.name = name
-        self.data = data
-        self.parent_feature = parent_feature
-        self.metadata = {} if metadata is None else metadata
-
-    @property
-    def size(self):
-        return self.data.shape[-1]
-
-    def map(self, fn, name):
-        data = fn(self.data)
-        return Feature(name, data, self)
-
-
-class Dataset:
-    def __init__(
-        self,
-        name: str,
-        features: typing.Sequence[Feature],
-        labels_train,
-        labels_test=None,
-        config: DatasetConfig | None = None,
-        na_value=0,
-    ):
-        self.name = name
-        self.features = {feature.name: feature for feature in features}
-        self.labels_train = labels_train
-        self.labels_test = labels_test
-        self.image_dimensions = features[0].data.shape[:2]
-        self.na_value = na_value
-        for feature in features:
-            if feature.data.shape[:2] != self.image_dimensions:
-                raise ValueError(
-                    "All features must have same image dimensions (0 and 1)"
-                )
-        self.config = config
-
-        self._label_encoder = sklearn.preprocessing.LabelEncoder()
-        mask = _is_valid(self.labels_train, self.na_value)
-        self._label_encoder.fit(self.labels_train[mask].ravel())
-        self.num_labels = len(self._label_encoder.classes_)
-
-    def data(self, features: list[str] | None = None, split=None):
-        h, w = self.image_dimensions
-
-        if features is None:
-            features = self.features.keys()
-
-        feature_map = []
-        current_channel = 0
-        for feature in features:
-            feat = self.feature(feature)
-            if feat is None:
-                print(
-                    f'Feature "{feature}" not in dataset. Adding na_values ({self.na_value} at channel {current_channel}).'
-                )
-                feature_map.append(np.full((h, w, 1), self.na_value))
-                current_channel += 1
-            else:
-                feature_map.append(feat.data)
-                current_channel += feat.size
-
-        feature_map = np.concatenate(feature_map, axis=-1)
-
-        if split is not None:
-            mask = self.split_mask(split)
-            return feature_map[mask]
-
-        return feature_map
-
-    def feature(self, name):
-        return self.features.get(name)
-
-    def labels(self, split="train"):
-        return self.labels_train if split == "train" else self.labels_test
-
-    def split_mask(self, split="train"):
-        labels = self.labels(split)
-        return labels != self.na_value
-
-    def targets(self, split="train"):
-        labels = self.labels(split)
-        mask = self.split_mask(split)
-        return self._label_encoder.transform(labels[mask])
-
-    def label_to_id(self, labels):
-        return self._label_encoder.transform(labels)
-
-    def id_to_label(self, ids):
-        return self._label_encoder.inverse_transform(ids)
-
-    @classmethod
-    def from_config(cls, config: DatasetConfig):
-        base_path = Path(config.base_dir)
-
-        features = [
-            _load_feature(base_path / file_name) for file_name in config.feature_files
-        ]
-        labels_train = _load_source(base_path / config.labels_file)
-        labels_test = (
-            _load_source(base_path / config.labels_file_test)
-            if config.labels_file_test
-            else None
-        )
-
-        return cls(
-            name=config.name,
-            features=features,
-            labels_train=labels_train,
-            labels_test=labels_test,
-            config=config,
-        )
-
-    @classmethod
-    def from_json(cls, json_path: str | Path):
-        return cls.from_config(DatasetConfig.from_json(json_path))
-
-
 def reduce_dimensions(
     image: np.ndarray, num_components=15, channel_dim=-1, train_mask=None, pca=None
 ):
@@ -466,43 +372,58 @@ def reduce_dimensions(
 
 
 def preprocess(
-    dataset: Dataset,
+    features: dict[str, np.ndarray],
+    labels: dict[str, np.ndarray],
     image_dtype=np.float32,
-    num_hs_components=15,
-    pca=None,
-    return_train_test=True,
+    features_to_process: list[str] | None = None,
+    patch_size: int = 9,
+    na_value: int = 0,
+    num_components=15,
+    channel_dim=-1,
+    pcas=None,
+    label_encoder=None,
 ):
-    train_mask = dataset.split_mask("train")
-    test_mask = dataset.split_mask("test")
+    image_dimensions = labels["train"].shape[:2]
+    num_pixels = np.prod(image_dimensions)
 
-    if num_hs_components is not None:
-        hs_feat = dataset.feature("data_HS_LR")
-        hs = hs_feat.data
-        n_components = 15
-        hs_pca, pca = reduce_dimensions(hs, n_components, train_mask=train_mask, pca=pca)
-        name = "data_HS_LR_pca15"
-        dataset.features[name] = Feature(name, hs_pca, parent_feature=hs_feat)
+    valid_labels = []
+    idxs = []
+    for split, targets in labels.items():
+        mask = np.asarray(targets != na_value)
+        valid_labels.append(targets[mask])
+        idxs.append(np.where(mask.reshape(num_pixels)))
 
-        image = dataset.data(
-            [
-                "data_DSM",
-                "data_HS_LR_pca15",
-                "data_SAR_HR",
-            ]
-        )
-    else:
-        image = dataset.data()
+    if label_encoder is None:
+        label_encoder = LabelEncoder().fit(np.concatenate(valid_labels, axis=0).ravel())
 
-    X = patchify(image)
+    y_train, y_test = [label_encoder.transform(y) for y in valid_labels]
+    idxs_train, idxs_test = idxs
+    y = np.full(num_pixels, -1, dtype=int)
+    y[idxs_train] = y_train
+    y[idxs_test] = y_test
 
-    if not return_train_test:
-        X = np.concatenate([X[train_mask], X[test_mask]]).astype(image_dtype)
-        y = np.concatenate([dataset.targets("train"), dataset.targets("test")])
-        return X, y
+    if features_to_process is None:
+        features_to_process = []
+    features_to_process = set(features_to_process)
 
-    return (
-        X[train_mask].astype(image_dtype),
-        X[test_mask].astype(image_dtype),
-        dataset.targets("train"),
-        dataset.targets("test"),
-    )
+    if pcas is None:
+        pcas = {}
+
+    X = []
+    for name, data in features.items():
+        data = data.reshape(num_pixels, -1)
+        if name in features_to_process:
+            pca = pcas.get(name)
+            data, pca = reduce_dimensions(
+                data,
+                num_components,
+                channel_dim=channel_dim,
+                train_mask=idxs_train,
+                pca=pca,
+            )
+            pcas[name] = pca
+        X.append(data)
+    X = np.concatenate(X, axis=channel_dim)
+    X = patchify(X, patch_size=patch_size, pad_value=na_value)
+
+    return (X.astype(image_dtype), y, (idxs_train, idxs_test), label_encoder, pcas)

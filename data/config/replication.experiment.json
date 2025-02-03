@@ -4,26 +4,24 @@
   "run_id": null,
   "description": "REPLICATION OF 'Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping'",
   "out_dir": null,
-  "mlflow_uri": null,
+  "mlflow_uri": "http://127.0.0.1:5000",
   "datasets": {
       "train": {
           "name": "augsburg",
-          "base_dir": "./data/Datasets/HS-SAR-DSM Augsburg",
-          "feature_files": [
-              "data_DSM.mat",
-              "data_HS_LR.mat",
-              "data_SAR_HR.mat"
-          ],
-          "labels_file": "TrainImage.mat",
-          "labels_file_test": "TestImage.mat",
-          "na_label": 0,
-          "preprocessing": [
-            {"pca": ["data_HS_LR"]}
-          ]
-        },
+          "files": {
+              "base_dir": "./data/Datasets/HS-SAR-DSM Augsburg",
+              "feature_files": ["data_DSM.mat", "data_HS_LR.mat", "data_SAR_HR.mat"],
+              "label_files": ["TrainImage.mat", "TestImage.mat"]
+          },
+          "preprocessing": {
+              "features_to_process": ["data_HS_LR"],
+              "num_components": 15
+          },
+          "na_value": 0
+      },
       "validation": null,
       "test": null
-    },
+  },
   "training": {
     "seed": 271828182,
     "type": "cv",

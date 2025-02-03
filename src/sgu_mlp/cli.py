@@ -14,8 +14,7 @@ import torchmetrics
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader
 
-from sgu_mlp.config import DatasetConfig
-from sgu_mlp.data import Dataset, preprocess, PatchDataset
+from sgu_mlp.data import load_benchmark_dataset, preprocess, PatchDataset
 from sgu_mlp.models import LitSGUMLPMixer
 
 
@@ -185,8 +184,19 @@ def setup_experiment(experiment_cfg_path):
 
 
 def _load_and_preprocess_dataset(dataset_cfg: dict):
-    dataset = Dataset.from_config(DatasetConfig(**dataset_cfg))
-    X_train, X_test, y_train, y_test = preprocess(dataset)
+    dataset = load_benchmark_dataset(
+        **dataset_cfg["files"], na_value=dataset_cfg.get("na_value", 0)
+    )
+    X, y, (train_idx, test_idx), label_encoder, _ = preprocess(
+        *dataset, **dataset_cfg["preprocessing"]
+    )
+    n, c, p, _ = X.shape
+    X = np.moveaxis(X, 1, -1)
+    X_train = X[train_idx]
+    print(X_train.shape)
+    y_train = y[train_idx]
+    X_test = X[test_idx]
+    y_test = y[test_idx]
     dataset_train = torch.utils.data.TensorDataset(
         torch.from_numpy(X_train), torch.from_numpy(y_train)
     )
@@ -195,10 +205,10 @@ def _load_and_preprocess_dataset(dataset_cfg: dict):
     )
 
     return {
-        "name": dataset.name,
+        "name": dataset_cfg["name"],
         "train": dataset_train,
         "test": dataset_test,
-        "num_labels": dataset.num_labels,
+        "num_labels": len(label_encoder.classes_),
         "input_dimensions": X_train.shape[1:],
     }
 
