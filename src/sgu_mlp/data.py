@@ -44,7 +44,7 @@ def _load_source(fp: Path | str, channel_first=True):
     return img
 
 
-def load_benchmark_dataset(base_dir, feature_files, label_files, na_value=0, name=None):
+def load_benchmark_dataset(base_dir, feature_files, label_files, na_value=0, **kwargs):
     load = partial(_load_source, channel_first=False)
 
     base_dir = Path(base_dir)
@@ -273,64 +273,25 @@ def patchify(
     patch_size: int = 9,
     pad_value=0,
 ):
-    """Extract square patches centered on each pixel of a 2D or N-D image array.
-
-    Args:
-        image: Input array of shape (H, W, ...) where H and W are spatial dimensions.
-            Additional dimensions after the first two are preserved as features.
-        labels: Label array of shape (H, W). When provided with only_valid=True, patches
-            will only be extracted for pixels that have labels (where labels != na_value).
-            Defaults to None.
-        patch_size: Width and height of patches. Must be odd to ensure patches are centered.
-            Defaults to 9.
-        pad_value: Value used to pad borders of image before extracting patches.
-            Defaults to 0.
-        na_value: Value in labels array that indicates pixels without a valid label.
-            Defaults to 0.
-        only_valid: If True and labels is provided, only extract patches centered on labeled
-            pixels (where labels != na_value). If False or labels=None, extract patches
-            for all pixels. Defaults to True.
-
-    Returns:
-        A tuple of (patches, labels):
-            patches: Extracted patches with shape:
-                - (N, patch_size, patch_size, ...) if only_valid=True and labels provided,
-                  where N is number of labeled pixels
-                - (H*W, patch_size, patch_size, ...) otherwise.
-            labels: If labels provided, returns corresponding label for each patch:
-                - (N,) if only_valid=True and labels provided,
-                  where N is number of labeled pixels
-                - (H*W,) otherwise.
-                If labels=None, returns None
-
-    Raises:
-        ValueError: If
-            - patch_size is even
-            - image has fewer than 2 dimensions
-            - spatial dimensions of image and labels do not match.
-
-    Notes:
-        - Patches are extracted using sliding_window_view after padding
-        - Each patch is centered on its corresponding pixel
-        - Feature dimensions (after H,W) are preserved in output patches
-    """
     if patch_size % 2 == 0:
         raise ValueError("patch_size must be odd")
     offset = patch_size // 2
 
     image = np.array(image, copy=True)
-    if image.ndim < 2:
-        raise ValueError("image must have at least 2 dimensions")
+    if image.ndim < 3:
+        raise ValueError("image must have at least 3 dimensions (H, W, C) or 4 dimensions (N, H, W, C)")
+
+    if image.ndim == 3:
+        image = np.expand_dims(image, 0)
 
     # configure sliding windows
-    pad_width = [(offset, offset), (offset, offset)]
-    window_shape = [patch_size, patch_size]
+    pad_width = [(0, 0), (offset, offset), (offset, offset)]
+    window_shape = [1, patch_size, patch_size]
 
     # include feature dimensions
-    if image.ndim > 2:
-        n_feature_dims = image.ndim - 2
-        pad_width.extend([(0, 0)] * n_feature_dims)
-        window_shape.extend(image.shape[2:])
+    n_feature_dims = image.ndim - 3
+    pad_width.extend([(0, 0)] * n_feature_dims)
+    window_shape.extend(image.shape[3:])
 
     # extract patches
     image = np.pad(
@@ -423,7 +384,10 @@ def preprocess(
             )
             pcas[name] = pca
         X.append(data)
+
     X = np.concatenate(X, axis=channel_dim)
-    X = patchify(X, patch_size=patch_size, pad_value=na_value)
+    channels = X.shape[-1]
+    X = X.reshape(-1, *image_dimensions, channels)
+    X = patchify(X, patch_size=patch_size, pad_value=na_value).reshape(-1, patch_size, patch_size, channels)
 
     return (X.astype(image_dtype), y, (idxs_train, idxs_test), label_encoder, pcas)

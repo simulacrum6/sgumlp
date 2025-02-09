@@ -183,17 +183,15 @@ def setup_experiment(experiment_cfg_path):
     )
 
 
-def _load_and_preprocess_dataset(dataset_cfg: dict):
+def _load_and_preprocess_dataset(dataset_cfg: dict, pcas=None):
     dataset = load_benchmark_dataset(
         **dataset_cfg["files"], na_value=dataset_cfg.get("na_value", 0)
     )
-    X, y, (train_idx, test_idx), label_encoder, _ = preprocess(
-        *dataset, **dataset_cfg["preprocessing"]
+    X, y, (train_idx, test_idx), label_encoder, pcas = preprocess(
+        *dataset, **dataset_cfg["preprocessing"], pcas=pcas
     )
-    n, c, p, _ = X.shape
-    X = np.moveaxis(X, 1, -1)
+    n, p, _, c = X.shape
     X_train = X[train_idx]
-    print(X_train.shape)
     y_train = y[train_idx]
     X_test = X[test_idx]
     y_test = y[test_idx]
@@ -210,6 +208,8 @@ def _load_and_preprocess_dataset(dataset_cfg: dict):
         "test": dataset_test,
         "num_labels": len(label_encoder.classes_),
         "input_dimensions": X_train.shape[1:],
+        "pcas": pcas,
+        "label_encoder": label_encoder,
     }
 
 
@@ -415,33 +415,53 @@ def ood_experiment(
     lightning.seed_everything(training_args["seed"])
 
     datasets = []
-    num_labels = None
-    input_dimensions = None
     for dataset_cfg in dataset_cfgs:
-        ds = _load_and_preprocess_dataset(dataset_cfg)
-        datasets.append(ds)
-        num_labels = ds["num_labels"]
-        input_dimensions = ds["input_dimensions"]
-
-    model_args["input_dimensions"] = input_dimensions
-    model_args["num_classes"] = num_labels
-
-    metrics = _get_metrics(num_labels)
+        datasets.append(load_benchmark_dataset(**dataset_cfg["files"]))
 
     batch_size = training_args["batch_size"]
     for i in range(len(datasets)):
         test_sets = datasets.copy()
         train_set = test_sets.pop(i)
 
-        train_dataset = train_set["train"]
+        features, labels = train_set
 
-        #
+        features_to_process = ["data_HS_LR"]
+        X, y, (train_idxs, test_idxs), label_encoder, pcas = preprocess(features, labels, features_to_process=features_to_process)
+
+        num_labels = len(label_encoder.classes_)
+        model_args["input_dimensions"] = X.shape[2:]
+        model_args["num_classes"] = num_labels
+        metrics = _get_metrics(num_labels)
+
+        train_dataset = torch.utils.data.TensorDataset(
+            torch.tensor(X[train_idxs]),
+            torch.tensor(y[train_idxs])
+        )
+        test_dataset = torch.utils.data.TensorDataset(
+            torch.tensor(X[test_idxs]),
+            torch.tensor(y[test_idxs])
+        )
+
         n = len(train_dataset)
-        idxs = np.arange(n)
-        np.random.shuffle(idxs)
+        idxs = np.random.permutation(n)
         n_train = int(n * training_args["train_percentage"])
         idxs_train = idxs[:n_train]
         idxs_val = idxs[n_train:]
+
+        test_datasets = [test_dataset]
+        for features, labels in test_sets:
+            X, y, (train_idxs, test_idxs), _, _ = preprocess(
+                features,
+                labels,
+                features_to_process=features_to_process,
+                pcas=pcas,
+                label_encoder=label_encoder,
+            )
+            idxs = np.concatenate([train_idxs[0], test_idxs[0]])
+            test_datasets.append(torch.utils.data.TensorDataset(
+                torch.tensor(X[idxs]),
+                torch.tensor(y[idxs]),
+            ))
 
         train_dataloader = _get_dataloader(
             train_dataset,
@@ -457,21 +477,13 @@ def ood_experiment(
         )
         test_dataloader = [
             _get_dataloader(
-                ds["test"],
+                test_ds,
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=min(multiprocessing.cpu_count(), 6),
             )
-            for ds in test_sets
+            for test_ds in test_datasets
         ]
-        test_dataloader.append(
-            _get_dataloader(
-                train_set["test"],
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=min(multiprocessing.cpu_count(), 6),
-            )
-        )
 
         meta_data = {
             "experiment_name": experiment_name,

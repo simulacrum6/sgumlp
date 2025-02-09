@@ -111,7 +111,7 @@ def test_preprocess(benchmark_dataset):
         features, labels, patch_size=p, na_value=na_value, features_to_process=None
     )
     assert y.shape == (n,)
-    assert X.shape == (n, c, p, p)
+    assert X.shape == (n, p, p, c)
     for idx in idxs:
         assert X[idx].shape[0] == y[idx].shape[0]
         assert X[idx].shape[1:] == X.shape[1:]
@@ -133,7 +133,7 @@ def test_preprocess(benchmark_dataset):
     )
 
     assert name in pcas
-    assert X.shape[1] == c_
+    assert X.shape[-1] == c_
     X_, _, _, _, _ = preprocess(
         features,
         labels,
