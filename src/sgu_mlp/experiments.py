@@ -3,40 +3,20 @@ import json
 import multiprocessing
 from pathlib import Path
 
-import gdown
 import lightning
 import numpy as np
 import pandas as pd
-import patoolib
 import requests
 import torch
 import torchmetrics
-from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader
 
-from sgu_mlp.data import load_benchmark_dataset, preprocess, PatchDataset
-from sgu_mlp.models import LitSGUMLPMixer
+from sgu_mlp.data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
+from sgu_mlp.metrics import get_metrics, CustomCosineSimilarity, CustomKLDivergence
+from sgu_mlp.train import run_train_test, run_cv
 
 
-def _get_dataloader(dataset, batch_size, idxs=None, shuffle=False, num_workers=1):
-    sampler = None
-    if idxs is not None:
-        sampler = torch.utils.data.SubsetRandomSampler(idxs)
-        shuffle = None
-    return torch.utils.data.DataLoader(
-        dataset,
-        num_workers=num_workers,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        sampler=sampler,
-    )
-
-
-def _to_torch_dataset(X, y):
-    return torch.utils.data.TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
-
-
-def _get_logger(experiment_name, run_id, tracking_uri: str | None, save_local: bool):
+def get_experiment_logger(experiment_name, run_id, tracking_uri: str | None, save_local: bool):
     if tracking_uri is not None and not save_local:
         try:
             requests.get(tracking_uri + "/health")
@@ -47,101 +27,6 @@ def _get_logger(experiment_name, run_id, tracking_uri: str | None, save_local: b
     return lightning.pytorch.loggers.MLFlowLogger(
         experiment_name=experiment_name, run_name=run_id, tracking_uri=tracking_uri
     )
-
-
-def _get_metrics(num_labels: int):
-    task = "binary" if num_labels == 2 else "multiclass"
-    metric_args = dict(task=task, num_classes=num_labels)
-    return dict(
-        train=dict(
-            accuracy=torchmetrics.Accuracy(**metric_args),
-        ),
-        test=dict(
-            accuracy=torchmetrics.Accuracy(**metric_args),
-            precision=torchmetrics.Precision(**metric_args),
-            recall=torchmetrics.Recall(**metric_args),
-            f1=torchmetrics.F1Score(**metric_args),
-        ),
-    )
-
-
-def download_datasets():
-    data_path = Path("data")
-    data_path.mkdir(parents=True, exist_ok=True)
-    file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv"  # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
-    file_path = data_path / (file_id + ".rar")
-    try:
-        gdown.download(id=file_id, output=str(file_path), quiet=False)
-        patoolib.extract_archive(str(file_path), outdir=str(data_path))
-    finally:
-        file_path.unlink(missing_ok=True)
-
-
-def run_train_test(
-    dataloader_train: torch.utils.data.DataLoader,
-    model_args: dict,
-    trainer_args: dict,
-    optimizer_args: dict,
-    metrics: dict,
-    meta_data: dict,
-    dataloader_val: torch.utils.data.DataLoader = None,
-    dataloader_test: torch.utils.data.Dataset | list = None,
-    model_class=LitSGUMLPMixer,
-    criterion=None,
-):
-    model = model_class(
-        model_args, optimizer_args, metrics, criterion=criterion, meta_data=meta_data
-    )
-    trainer = lightning.Trainer(**trainer_args)
-    trainer.fit(model, dataloader_train, dataloader_val)
-    if dataloader_test is None:
-        return
-    if type(dataloader_test) is list:
-        for dl in dataloader_test:
-            trainer.test(model, dl)
-    else:
-        trainer.test(model, dataloader_test)
-
-
-def run_cv(
-    dataset_train: torch.utils.data.Dataset,
-    model_args: dict,
-    trainer_args: dict,
-    optimizer_args: dict,
-    metrics: dict,
-    meta_data: dict,
-    dataset_test: torch.utils.data.Dataset = None,
-):
-    n_folds = meta_data["n_folds"]
-    seed = meta_data["seed"]
-    batch_size = meta_data["batch_size"]
-    cv = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
-
-    test_dataloader = (
-        _get_dataloader(dataset_test, batch_size, None, shuffle=False)
-        if dataset_test
-        else None
-    )
-
-    for fold, (train_idx, val_idx) in enumerate(cv.split(dataset_train)):
-        train_dataloader = _get_dataloader(
-            dataset_train, batch_size, train_idx, shuffle=True
-        )
-        val_dataloader = _get_dataloader(
-            dataset_train, batch_size, val_idx, shuffle=False
-        )
-
-        run_train_test(
-            train_dataloader,
-            model_args,
-            trainer_args,
-            optimizer_args,
-            metrics,
-            meta_data,
-            val_dataloader,
-            test_dataloader,
-        )
-
 
 def setup_experiment(experiment_cfg_path):
     with open(experiment_cfg_path, "r") as f:
@@ -166,7 +51,7 @@ def setup_experiment(experiment_cfg_path):
         tracking_uri = str(save_dir / "mlflow_logs")
         save_local = True
 
-    logger = _get_logger(
+    logger = get_experiment_logger(
         experiment_name, run_id, tracking_uri=tracking_uri, save_local=save_local
     )
 
@@ -181,66 +66,6 @@ def setup_experiment(experiment_cfg_path):
         save_dir,
         logger,
     )
-
-
-def _load_and_preprocess_dataset(dataset_cfg: dict, pcas=None):
-    dataset = load_benchmark_dataset(
-        **dataset_cfg["files"], na_value=dataset_cfg.get("na_value", 0)
-    )
-    X, y, (train_idx, test_idx), label_encoder, pcas = preprocess(
-        *dataset, **dataset_cfg["preprocessing"], pcas=pcas
-    )
-    n, p, _, c = X.shape
-    X_train = X[train_idx]
-    y_train = y[train_idx]
-    X_test = X[test_idx]
-    y_test = y[test_idx]
-    dataset_train = torch.utils.data.TensorDataset(
-        torch.from_numpy(X_train), torch.from_numpy(y_train)
-    )
-    dataset_test = torch.utils.data.TensorDataset(
-        torch.from_numpy(X_test), torch.from_numpy(y_test)
-    )
-
-    return {
-        "name": dataset_cfg["name"],
-        "train": dataset_train,
-        "test": dataset_test,
-        "num_labels": len(label_encoder.classes_),
-        "input_dimensions": X_train.shape[1:],
-        "pcas": pcas,
-        "label_encoder": label_encoder,
-    }
-
-
-class CustomCosineSimilarity(torchmetrics.CosineSimilarity):
-    def update(self, preds, target):
-        target = torch.nan_to_num(target, 0.0)
-
-        eps = 1e-8
-        target = target + eps
-
-        target = target / target.sum(1, keepdim=True)
-
-        preds_proba = torch.softmax(preds, 1) + eps
-        preds_proba = preds_proba / preds_proba.sum(1, keepdim=True)
-        super().update(preds_proba, target)
-
-
-class CustomKLDivergence(torchmetrics.KLDivergence):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.log_prob = False
-
-    def update(self, preds, target):
-        target = torch.nan_to_num(target, 0.0)
-        eps = 1e-8
-        target = target + eps
-        target = target / target.sum(1, keepdim=True)
-        preds_proba = torch.softmax(preds, 1) + eps
-        preds_proba = preds_proba / preds_proba.sum(1, keepdim=True)
-        super().update(preds_proba, target)
-
 
 def mulc_vbwva_experiment(
     experiment_cfg_path: str = "data/config/mulc_vbwva.experiment.json",
@@ -312,11 +137,6 @@ def mulc_vbwva_experiment(
         "datasets": ds_cfg["name"],
     }
 
-    def loss_fn(y_pred, y_true):
-        kld = torch.nn.KLDivLoss(reduction="batchmean")
-        softmax = torch.nn.LogSoftmax(dim=1)
-        return kld(softmax(y_pred), y_true)
-
     ce = torch.nn.CrossEntropyLoss()
 
     metrics = {
@@ -357,11 +177,11 @@ def cv_experiment(
 
     lightning.seed_everything(training_args["seed"])
 
-    dataset = _load_and_preprocess_dataset(train_dataset_cfg)
+    dataset = load_and_preprocess_dataset(train_dataset_cfg)
     model_args["input_dimensions"] = dataset["input_dimensions"]
     model_args["num_classes"] = dataset["num_labels"]
 
-    metrics = _get_metrics(dataset["num_labels"])
+    metrics = get_metrics(dataset["num_labels"])
 
     meta_data = {
         "experiment_name": experiment_name,
@@ -431,7 +251,7 @@ def ood_experiment(
         num_labels = len(label_encoder.classes_)
         model_args["input_dimensions"] = X.shape[2:]
         model_args["num_classes"] = num_labels
-        metrics = _get_metrics(num_labels)
+        metrics = get_metrics(num_labels)
 
         train_dataset = torch.utils.data.TensorDataset(
             torch.tensor(X[train_idxs]),
@@ -463,20 +283,20 @@ def ood_experiment(
                 torch.tensor(y[idxs]),
             ))
 
-        train_dataloader = _get_dataloader(
+        train_dataloader = get_dataloader(
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
             idxs=idxs_train,
         )
-        val_dataloader = _get_dataloader(
+        val_dataloader = get_dataloader(
             train_dataset,
             batch_size=batch_size,
             shuffle=False,
             idxs=idxs_val,
         )
         test_dataloader = [
-            _get_dataloader(
+            get_dataloader(
                 test_ds,
                 batch_size=batch_size,
                 shuffle=False,

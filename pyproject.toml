@@ -13,10 +13,10 @@ packages = [
 name = "sgu-mlp"
 
 [project.scripts]
-replication = 'sgu_mlp.cli:cv_experiment'
-cross_location = 'sgu_mlp.cli:ood_experiment'
-download_datasets = 'sgu_mlp.cli:download_datasets'
-mulc_vbwva = 'sgu_mlp.cli:mulc_vbwva_experiment'
+replication = 'sgu_mlp.experiments:cv_experiment'
+cross_location = 'sgu_mlp.experiments:ood_experiment'
+download_datasets = 'sgu_mlp.experiments:download_datasets'
+mulc_vbwva = 'sgu_mlp.experiments:mulc_vbwva_experiment'
 
 [tool.poetry.dependencies]
 python = "^3.10"

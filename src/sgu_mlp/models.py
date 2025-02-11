@@ -364,7 +364,7 @@ class SGUMLPMixer(torch.nn.Module):
         channels_first=False,
     ):
         super().__init__()
-        self.patch_dimensions = input_dimensions
+        self.input_dimensions = input_dimensions
 
         # validate dimensions
         patch_height, patch_width, patch_channels = input_dimensions
@@ -381,6 +381,8 @@ class SGUMLPMixer(torch.nn.Module):
         self.n_tokens = self.embedding_patch_size * self.embedding_patch_size
         self.n_channels = token_features
         self.dropout_rate = dropout
+
+        self.output_dimensions = (self.n_tokens, self.n_channels) if num_classes == 0 else (num_classes,)
 
         self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
         residual_module = torch.nn.Parameter if learnable_residual else torch.nn.Buffer
@@ -423,6 +425,7 @@ class SGUMLPMixer(torch.nn.Module):
         x = self.mixer_blocks(x)
         x = self.head(x)
         return x
+
 
 
 def _default_metrics(num_classes):

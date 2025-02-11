@@ -1,7 +1,9 @@
 from functools import partial
 from pathlib import Path
 
+import gdown
 import numpy as np
+import patoolib
 import rasterio
 import scipy.io as sio
 import torch
@@ -12,40 +14,40 @@ from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
 
 
-def _load_matrix(fp: Path | str):
+def load_matrix(fp: Path | str):
     fp = Path(fp)
     return sio.loadmat(str(fp))[fp.stem]
 
 
-def _load_image(fp: Path | str):
+def load_pil(fp: Path | str):
     fp = Path(fp)
     return np.array(Image.open(fp))
 
 
-def _load_rasterio(fp: Path | str):
+def load_rasterio(fp: Path | str):
     with open(fp, "rb") as f:
         with rasterio.open(f) as src:
             return src.read()
 
 
-def _load_source(fp: Path | str, channel_first=True):
+def load_image(fp: Path | str, channel_first=True):
     fp = Path(fp)
     match fp.suffix:
         case ".mat":
-            img = _load_matrix(fp)
+            img = load_matrix(fp)
         case ".tiff" | ".tif":
-            img = _load_rasterio(fp)
+            img = load_rasterio(fp)
             if not channel_first:
                 img = np.swapaxes(img, 0, -1)
         case _:
-            img = _load_image(fp)
+            img = load_pil(fp)
             if channel_first:
                 img = np.swapaxes(img, 0, -1)
     return img
 
 
 def load_benchmark_dataset(base_dir, feature_files, label_files, na_value=0, **kwargs):
-    load = partial(_load_source, channel_first=False)
+    load = partial(load_image, channel_first=False)
 
     base_dir = Path(base_dir)
     feature_files = [Path(feature_file) for feature_file in feature_files]
@@ -228,8 +230,8 @@ class PatchDataset(torch.utils.data.Dataset):
     def _load_images(self, image_fp: str, target_img_fp: str):
         image_fp = self.data_root / image_fp
         target_img_fp = self.data_root / target_img_fp
-        img = _load_rasterio(image_fp)
-        target = _load_rasterio(target_img_fp)
+        img = load_rasterio(image_fp)
+        target = load_rasterio(target_img_fp)
 
         pad_args = dict(
             pad_width=(
@@ -391,3 +393,63 @@ def preprocess(
     X = patchify(X, patch_size=patch_size, pad_value=na_value).reshape(-1, patch_size, patch_size, channels)
 
     return (X.astype(image_dtype), y, (idxs_train, idxs_test), label_encoder, pcas)
+
+
+def get_dataloader(dataset, batch_size, idxs=None, shuffle=False, num_workers=1):
+    sampler = None
+    if idxs is not None:
+        sampler = torch.utils.data.SubsetRandomSampler(idxs)
+        shuffle = None
+    return torch.utils.data.DataLoader(
+        dataset,
+        num_workers=num_workers,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        sampler=sampler,
+    )
+
+
+def to_torch_dataset(X, y):
+    return torch.utils.data.TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
+
+
+def load_and_preprocess_dataset(dataset_cfg: dict, pcas=None):
+    dataset = load_benchmark_dataset(
+        **dataset_cfg["files"], na_value=dataset_cfg.get("na_value", 0)
+    )
+    X, y, (train_idx, test_idx), label_encoder, pcas = preprocess(
+        *dataset, **dataset_cfg["preprocessing"], pcas=pcas
+    )
+    n, p, _, c = X.shape
+    X_train = X[train_idx]
+    y_train = y[train_idx]
+    X_test = X[test_idx]
+    y_test = y[test_idx]
+    dataset_train = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_train), torch.from_numpy(y_train)
+    )
+    dataset_test = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_test), torch.from_numpy(y_test)
+    )
+
+    return {
+        "name": dataset_cfg["name"],
+        "train": dataset_train,
+        "test": dataset_test,
+        "num_labels": len(label_encoder.classes_),
+        "input_dimensions": X_train.shape[1:],
+        "pcas": pcas,
+        "label_encoder": label_encoder,
+    }
+
+
+def download_benchmark_datasets(data_dir="data"):
+    data_path = Path(data_dir)
+    data_path.mkdir(parents=True, exist_ok=True)
+    file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv"  # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
+    file_path = data_path / (file_id + ".rar")
+    try:
+        gdown.download(id=file_id, output=str(file_path), quiet=False)
+        patoolib.extract_archive(str(file_path), outdir=str(data_path))
+    finally:
+        file_path.unlink(missing_ok=True)
