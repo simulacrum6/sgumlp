@@ -8,7 +8,7 @@ activations = {
 
 def DepthWiseConv2d(in_channels, kernel_size, num_kernels=1, *args, **kwargs):
     """
-    Creates a depthwise 2D convolutional layer with optional channel multiplication.
+    Creates a depthwise 2D convolutional layer.
 
     Args:
        in_channels (int): Number of input channels
@@ -35,7 +35,7 @@ def DepthWiseConv2d(in_channels, kernel_size, num_kernels=1, *args, **kwargs):
 class ParallelDepthwiseConv2d(torch.nn.Module):
     """
     Implements a multi-kernel depthwise convolution module that applies multiple kernel sizes
-    in parallel and combines their outputs.
+    in parallel and adds their outputs.
 
     Args:
         in_channels (int): Number of input channels
@@ -64,20 +64,25 @@ class ParallelDepthwiseConv2d(torch.nn.Module):
 
 class SpatialGatedUnit(torch.nn.Module):
     """
-    Implements a Spatial Gated Unit that splits input features into two paths,
-    applying spatial gating to control information flow.
+    Implements a Spatial Gated Unit.
+
+    This unit splits input features into two paths and modulates outputs of one path by learned interactions across
+    features of the second.
 
     Args:
-        in_features (int): Number of input features (must be even)
-        sequence_length (int): Length of input sequence
-        epsilon (float, optional): Range for weight initialization (-epsilon, epsilon). Defaults to 1e-3
+        in_features (int): Number of input features (must be even as it's split in half)
+        sequence_length (int): Length of input sequence for weight matrix dimensions
+        epsilon (float, optional): Range for uniform weight initialization. Defaults to 1e-3
         channel_dim (int, optional): Dimension along which to split channels. Defaults to -1
 
     Forward Args:
-        x (torch.Tensor): Input tensor to be gated
+        x (torch.Tensor): Input tensor to be gated [batch_size, sequence_length, in_features]
 
     Returns:
-        torch.Tensor: Gated output tensor with half the channels of the input
+        torch.Tensor: Gated output tensor with shape [batch_size, sequence_length, in_features // 2]
+
+    See Also:
+        - "Pay Attention to MLPs" by Liu et al. 2021, https://arxiv.org/abs/2105.08050
     """
 
     def __init__(self, in_features, sequence_length, epsilon=1e-3, channel_dim=-1):
@@ -99,20 +104,25 @@ class SpatialGatedUnit(torch.nn.Module):
 
 class MLPBlock(torch.nn.Module):
     """
-    A Multi-Layer Perceptron block that incorporates a Spatial Gated Unit between linear layers.
+    A Multi-Layer Perceptron block that optionally incorporates a Spatial Gated Unit between linear layers.
 
     Args:
         in_features (int): Number of input features
-        hidden_features (int): Number of hidden features before the SGU
-        sequence_length (int): Length of input sequence for SGU
-        activation (str, optional): Activation function to use. Defaults to 'gelu'
+        hidden_features (int): Number of hidden features
+        sequence_length (int, optional): Required when use_sgu=True for SGU dimensions
+        activation (str, optional): Name of activation function ('gelu' or 'relu'). Defaults to 'gelu'
+        use_sgu (bool, optional): Whether to use Spatial Gated Unit. Defaults to False
         out_features (int, optional): Number of output features. Defaults to in_features if None
+        dropout (float, optional): Dropout probability. Defaults to 0.0
 
     Forward Args:
-        x (torch.Tensor): Input tensor
+        x (torch.Tensor): Input tensor [batch_size, sequence_length, in_features]
 
     Returns:
-        torch.Tensor: Transformed output tensor after spatial gating
+        torch.Tensor: Transformed output with shape [batch_size, sequence_length, out_features]
+
+    Raises:
+        ValueError: If sequence_length is None when use_sgu=True
     """
 
     def __init__(
@@ -155,23 +165,23 @@ class MLPBlock(torch.nn.Module):
 
 class MLPMixerBlock(torch.nn.Module):
     """
-    A block in the MLP-Mixer architecture that performs both token and channel mixing operations.
-
-    This block applies two types of mixing:
-    1. Token mixing: Processes relationships between different tokens at the same feature
-    2. Channel mixing: Processes relationships between different features for each token
+    MLP-Mixer block combining token and channel mixing.
+    It can optionally use Spatial Gated Units in MixerBlocks.
 
     Args:
         in_features (int): Number of input features per token
         sequence_length (int): Number of tokens in the sequence
-        hidden_features_channel (int): Number of hidden dimensions in the channel mixing MLP
-        hidden_features_sequence (int): Number of hidden dimensions in the token mixing MLP
-        activation (str, optional): Name of activation function to use. Defaults to 'gelu'
-        mlp_block (str, optional): Type of MLP block implementation ('mlp' or 'sgu'). Defaults to 'mlp'
+        hidden_features_channel (int): Hidden dimension size for channel mixing
+        hidden_features_sequence (int): Hidden dimension size for token mixing
+        activation (str, optional): Activation function name. Defaults to 'gelu'
+        use_sgu (bool, optional): Whether to use SGU in mixing operations. Defaults to False
+        dropout (float, optional): Dropout probability. Defaults to 0.0
 
-    Input Shape:
-        - Input: (batch_size, sequence_length, in_features)
-        - Output: (batch_size, sequence_length, in_features)
+    Forward Args:
+        x (torch.Tensor): Input tensor [batch_size, sequence_length, in_features]
+
+    Returns:
+        torch.Tensor: Processed tensor with same shape as input after both mixing operations
     """
 
     def __init__(
@@ -222,40 +232,50 @@ class MLPMixerBlock(torch.nn.Module):
 
 def calc_n_tokens(height, width, patch_size):
     """
-    Calculates the number of tokens after splitting an image into patches.
+    Calculates the number of tokens when dividing an image into square patches.
 
     Args:
-        height (int): Height of the input image
-        width (int): Width of the input image
+        height (int): Image height in pixels
+        width (int): Image width in pixels
         patch_size (int): Size of each square patch
 
     Returns:
-        int: Number of tokens (patches) the image will be divided into
+        int: Total number of tokens (patches)
+
+    Note:
+        Assumes the image dimensions are perfectly divisible by patch_size
     """
     return height * width // patch_size**2
 
 
 class MLPMixer(torch.nn.Module):
     """
-    MLP-Mixer architecture for processing images.
+    A MLP-based vision architecture that processes images using token and channel mixing.
 
-    The model first splits input images into patches, projects them to a token embedding space,
-    and then processes them through multiple MLPMixer blocks. It relies purely on MLPs for
-    both spatial (token) and channel mixing, avoiding attention mechanisms.
+    This implementation splits images into patches, projects them to a token embedding space,
+    and processes them through multiple MLPMixer blocks. It can optionally use Spatial Gated
+    Units instead of standard MLPs.
 
     Args:
-        image_dimensions (tuple): Image input shape as (height, width, channels)
-        patch_size (int): Size of square patches to divide the image into
-        token_features (int): Number of features in token embedding space
-        mixer_features_channel (int): Hidden dimension size for channel-mixing MLPs
-        mixer_features_sequence (int): Hidden dimension size for token-mixing MLPs
+        image_dimensions (tuple): Input image shape as (height, width, channels)
+        patch_size (int): Size of square patches to divide the image
+        token_features (int): Dimension of token embedding space
+        mixer_features_channel (int): Hidden dimension for channel-mixing MLPs
+        mixer_features_sequence (int): Hidden dimension for token-mixing MLPs
+        mixer_use_sgu (bool, optional): Whether to use SGU in mixer blocks. Defaults to False
         num_blocks (int, optional): Number of sequential mixer blocks. Defaults to 1
-        activation (str, optional): Activation function for MLPs. Defaults to 'gelu'
+        activation (str, optional): Activation function type. Defaults to 'gelu'
+        dropout (float, optional): Dropout probability. Defaults to 0.0
 
-    Input Shape:
-        - Input: (batch_size, height, width, channels)
-        - Output: (batch_size, n_tokens, token_features)
-        where n_tokens = (height * width) / (patch_size * patch_size)
+    Forward Args:
+        x (torch.Tensor): Input image [batch_size, channels, height, width]
+
+    Returns:
+        torch.Tensor: Processed features [batch_size, n_tokens, token_features]
+
+    See Also:
+        - "MLP-Mixer: An all-MLP Architecture for Vision" by Tolstikhin et al. 2021, https://arxiv.org/abs/2105.01601
+        - "Pay Attention to MLPs" by Liu et al. 2021, https://arxiv.org/abs/2105.08050
     """
 
     def __init__(
@@ -302,6 +322,20 @@ class MLPMixer(torch.nn.Module):
 
 
 class Classifier(torch.nn.Module):
+    """
+    Classification head that pools tokens and applies linear classification.
+
+    Args:
+        num_classes (int): Number of output classes
+        in_features (int): Number of input features per token
+        dropout (float, optional): Dropout probability. Defaults to 0.0
+
+    Forward Args:
+        x (torch.Tensor): Input features [batch_size, n_tokens, in_features]
+
+    Returns:
+        torch.Tensor: Classification logits [batch_size, num_classes]
+    """
     def __init__(self, num_classes, in_features, dropout=0.0):
         super().__init__()
         self.avg_pool_tokens = torch.nn.AdaptiveAvgPool1d(1)
@@ -316,32 +350,46 @@ class Classifier(torch.nn.Module):
 
 class SGUMLPMixer(torch.nn.Module):
     """
-    MLP-Mixer variant using Spatial Gated Units (SGU) and parallel depthwise convolutions with residual connections.
+    MLP-Mixer variant using Spatial Gated Units (SGU) during mixing and parallel depthwise convolutions with residual
+    connections for preprocessing.
 
-    This implementation enhances the base MLP-Mixer through several architectural modifications:
-    1. Replacing standard MLPs with Spatial Gated Units (SGU)
-    2. Using parallel depthwise convolutions with multiple kernel sizes for multi-scale feature extraction
-    3. Employing direct patch processing instead of image-level patching
-    4. Adding a scaled residual connection (2x) around the depthwise convolution layer
+    This implementation allows setting the weight of the residual connection in preprocessing and optionally allows
+    to make it learnable.
 
     Args:
         input_dimensions (tuple): Input patch dimensions as (height, width, channels)
         token_features (int): Dimension of the token embedding space
-        mixer_features_channel (int): Hidden dimension for channel-mixing SGU blocks
-        mixer_features_sequence (int): Hidden dimension for token-mixing SGU blocks
+        mixer_features_channel (int): Hidden dimension for channel-mixing SGU/MLP blocks
+        mixer_features_sequence (int): Hidden dimension for token-mixing SGU/MLP blocks
+        mixer_use_sgu (bool, optional): Whether to use SGU blocks instead of standard MLPs. Defaults to True
         dwc_kernels (tuple, optional): Kernel sizes for parallel depthwise convolutions. Defaults to (1, 3, 5)
         num_blocks (int, optional): Number of sequential mixer blocks. Defaults to 1
-        activation (str, optional): Activation function for SGU blocks. Defaults to 'gelu'
+        activation (str, optional): Activation function for blocks. Defaults to 'gelu'
+        residual_weight (float, optional): Scaling factor for residual connection. Defaults to 2
+        learnable_residual (bool, optional): Whether residual weight is learnable. Defaults to False
+        embedding_kernel_size (int, optional): Kernel size for token embedding conv layer. Defaults to 1
+        num_classes (int, optional): Number of output classes. If 0, returns embeddings. Defaults to 0
+        dropout (float, optional): Dropout rate for mixer blocks and classifier. Defaults to 0.0
+        channels_first (bool, optional): Whether input has channels in first dimension. Defaults to False
 
-    Input / Output Shapes:
-        - Input: (batch_size, patch_height, patch_width, patch_channels)
-        - Output: (batch_size, n_tokens, token_features)
-        where n_tokens = patch_height * patch_width
+    Forward Args:
+        x (torch.Tensor): Input tensor of shape:
+            (batch_size, channels, height, width) if channels_first=True
+            (batch_size, height, width, channels) if channels_first=False
 
-    Notes:
-        - Patch dimensions must be square (height == width)
-        - Patch height/width must be odd-numbered
-        - All mixer blocks use SGU instead of standard MLPs for both token and channel mixing
+    Returns:
+        torch.Tensor: Output tensor of shape:
+            (batch_size, num_classes) if num_classes > 0
+            (batch_size, n_tokens, token_features) if num_classes = 0
+            where n_tokens = (height - embedding_kernel_size + 1)^2
+
+    Raises:
+        ValueError: If patch dimensions are not square
+        ValueError: If patch height/width is not odd
+        ValueError: If embedding kernel size is larger than patch size
+
+    See Also:
+        - "Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping" by Jamali et al. 2024, https://github.com/aj1365/SGUMLP/blob/main/Spatial_Gated_Multi-Layer_Perceptron_for_Land_Use_and_Land_Cover_Mapping.pdf
     """
 
     def __init__(
