@@ -11,9 +11,9 @@ import torch
 import torchmetrics
 from torch.utils.data import DataLoader
 
-from sgu_mlp.data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
-from sgu_mlp.metrics import get_metrics, CustomCosineSimilarity, CustomKLDivergence
-from sgu_mlp.train import run_train_test, run_cv
+from .data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
+from .metrics import get_metrics, CustomCosineSimilarity, CustomKLDivergence
+from .train import run_train_test, run_cv
 
 
 def get_experiment_logger(experiment_name, run_id, tracking_uri: str | None, save_local: bool):

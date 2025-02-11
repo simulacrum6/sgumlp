@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from sgu_mlp.cli import cv_experiment
+from experiments.run import cv_experiment
 
 
 def test_cv_experiment(test_experiment_cfg, tmp_path):

@@ -1,6 +1,6 @@
 import json
 
-from sgu_mlp.config import ExperimentConfig
+from experiments.config import ExperimentConfig
 
 
 def test_experimentconfig(exp_cfg, tmp_path):

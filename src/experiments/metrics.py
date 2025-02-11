@@ -45,3 +45,15 @@ class CustomKLDivergence(torchmetrics.KLDivergence):
         preds_proba = torch.softmax(preds, 1) + eps
         preds_proba = preds_proba / preds_proba.sum(1, keepdim=True)
         super().update(preds_proba, target)
+
+
+def default_classification_metrics(num_classes):
+    task = "binary" if num_classes == 2 else "multiclass"
+    return dict(
+        train=dict(
+            accuracy=torchmetrics.Accuracy(task=task, num_classes=num_classes),
+        ),
+        test=dict(
+            accuracy=torchmetrics.Accuracy(task=task, num_classes=num_classes),
+        ),
+    )

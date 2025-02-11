@@ -2,8 +2,8 @@ import lightning
 import torch
 from sklearn.model_selection import KFold
 
-from sgu_mlp.data import get_dataloader
-from sgu_mlp.models import LitSGUMLPMixer
+from .data import get_dataloader
+from .models import LitSGUMLPMixer
 
 
 def run_train_test(

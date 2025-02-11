@@ -1,6 +1,6 @@
 import numpy as np
 
-from sgu_mlp.data import patchify, reduce_dimensions, load_benchmark_dataset, preprocess
+from experiments.data import patchify, reduce_dimensions, load_benchmark_dataset, preprocess
 
 
 def test_patchify(image_and_labels):
