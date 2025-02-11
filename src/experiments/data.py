@@ -443,8 +443,13 @@ def load_and_preprocess_dataset(dataset_cfg: dict, pcas=None):
     }
 
 
-def download_benchmark_datasets(data_dir="data"):
+def download_benchmark_datasets(data_dir="data", overwrite=False):
     data_path = Path(data_dir)
+    datasets_dir = data_path / "Datasets"
+    if datasets_dir.exists() and not overwrite:
+        print("Dataset already exists, skipping download. If you want to overwrite it, pass overwrite=True or delete it.")
+        return
+
     data_path.mkdir(parents=True, exist_ok=True)
     file_id = "1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv"  # https://drive.usercontent.google.com/download?id=1dLJJrNJpQoQeDHybs37iGxmrSU6aP2xv&export=download
     file_path = data_path / (file_id + ".rar")

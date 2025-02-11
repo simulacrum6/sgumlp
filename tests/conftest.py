@@ -150,7 +150,7 @@ def test_experiment_cfg():
             "test": None,
         },
         "training": {
-            "seed": 42,
+            "seed": 23253462,
             "type": "cv",
             "n_folds": 3,
             "batch_size": 256,
