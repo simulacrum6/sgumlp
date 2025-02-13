@@ -45,7 +45,7 @@ class LitSGUMLPMixer(lightning.LightningModule):
         y_hat = self.forward(x)
         loss = self.criterion(y_hat, y)
 
-        self.log(f"{split}_loss", loss)
+        self.log(f"{split}_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = self.train_metrics if split == "train" else self.test_metrics
         for name, metric in metrics.items():
             self.log(
@@ -61,10 +61,12 @@ class LitSGUMLPMixer(lightning.LightningModule):
         return self._step(batch, batch_idx, "train", on_step=True, on_epoch=False)
 
     def validation_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "val", on_step=False, on_epoch=True)
+        with torch.no_grad():
+            return self._step(batch, batch_idx, "val", on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "test", on_step=False, on_epoch=True)
+        with torch.no_grad():
+            return self._step(batch, batch_idx, "test", on_step=False, on_epoch=True)
 
     def configure_optimizers(self):
         return self.optimizer_cls(

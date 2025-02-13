@@ -13,7 +13,7 @@ packages = [
 replication = 'experiments.experiments:cv_experiment'
 cross_location = 'experiments.experiments:ood_experiment'
 download_datasets = 'experiments.experiments:download_datasets'
-mulc_vbwva = 'experiments.experiments:mulc_vbwva_experiment'
+mulc = 'experiments.experiments:mulc_experiment'
 
 [tool.poetry.dependencies]
 python = "^3.10"

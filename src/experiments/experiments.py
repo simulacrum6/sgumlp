@@ -5,14 +5,17 @@ from pathlib import Path
 
 import lightning
 import numpy as np
+import mlflow
 import pandas as pd
 import requests
 import torch
 import torchmetrics
+from lightning.pytorch.callbacks import ModelCheckpoint
+
 from torch.utils.data import DataLoader
 
 from .data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
-from .metrics import get_metrics, StableCosineSimilarity, StableKLDivergence
+from .metrics import get_metrics, StableCosineSimilarity, StableKLDivergence, StableJensonShannonDivergence
 from .train import run_train_test, run_cv
 
 
@@ -24,6 +27,7 @@ def get_experiment_logger(experiment_name, run_id, tracking_uri: str | None, sav
             print("Tracking uri doesn't exist, saving locally to ./ml-runs")
             tracking_uri = None
 
+    mlflow.enable_system_metrics_logging()
     return lightning.pytorch.loggers.MLFlowLogger(
         experiment_name=experiment_name, run_name=run_id, tracking_uri=tracking_uri
     )
@@ -67,8 +71,8 @@ def setup_experiment(experiment_cfg_path):
         logger,
     )
 
-def mulc_vbwva_experiment(
-    experiment_cfg_path: str = "data/config/mulc_vbwva.experiment.json",
+def mulc_experiment(
+    experiment_cfg_path: str = "data/config/mulc_slmo.experiment.json",
 ):
     cfg, run_id, save_dir, logger = setup_experiment(experiment_cfg_path)
 
@@ -77,12 +81,23 @@ def mulc_vbwva_experiment(
     model_args = cfg["model"]["args"]
     optimizer_args = cfg["optimizer"]["args"]
     dataset_cfgs = cfg["datasets"]
+
+    best_model_callback = ModelCheckpoint(
+        dirpath='checkpoints/',
+        filename='best-model-{epoch:02d}-{val_loss:.2f}',
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1,
+        verbose=True,
+    )
+
     trainer_args = dict(
         default_root_dir=save_dir,
         deterministic=False,
         accelerator="auto",
         max_epochs=training_args["epochs"],
         logger=logger,
+        callbacks=[best_model_callback],
     )
 
     lightning.seed_everything(training_args["seed"])
@@ -90,7 +105,6 @@ def mulc_vbwva_experiment(
     ds_cfg = dataset_cfgs["train"]
 
     patch_size = model_args["input_dimensions"][0]
-    cache_size = cfg.get("cache_size", 0)
     root_dir = Path(ds_cfg["base_dir"])
     df = pd.read_csv(root_dir / ds_cfg["path_df"])
 
@@ -119,15 +133,15 @@ def mulc_vbwva_experiment(
         dataset=dataset,
         batch_size=training_args["batch_size"],
         sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_train),
-        num_workers=training_args.get("num_workers"),
-        pin_memory=True,
+        num_workers=2,
+        pin_memory=False,
     )
     dataloader_val = DataLoader(
         dataset=dataset,
-        batch_size=training_args["batch_size"],
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_val),
+        batch_size=training_args["batch_size"] * 16,
+        sampler=torch.utils.data.sampler.SequentialSampler(idxs_val),
         num_workers=training_args.get("num_workers"),
-        pin_memory=True,
+        pin_memory=False,
     )
 
     meta_data = {
@@ -137,16 +151,13 @@ def mulc_vbwva_experiment(
         "datasets": ds_cfg["name"],
     }
 
-    ce = torch.nn.CrossEntropyLoss()
-
     metrics = {
         "train": {
-            "cosine": StableCosineSimilarity(reduction="mean"),
+            "jsd": StableJensonShannonDivergence(reduction="mean"),
             "mse": torchmetrics.MeanSquaredError(),
         },
         "test": {
-            "cosine": StableCosineSimilarity(reduction="mean"),
-            "kld": StableKLDivergence(reduction="mean"),
+            "jsd": StableJensonShannonDivergence(reduction="mean"),
             "mse": torchmetrics.MeanSquaredError(),
         },
     }
@@ -160,7 +171,7 @@ def mulc_vbwva_experiment(
         meta_data,
         dataloader_val,
         None,
-        criterion=ce,
+        criterion=torch.nn.CrossEntropyLoss(),
     )
 
 
