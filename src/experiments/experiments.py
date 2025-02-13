@@ -15,7 +15,8 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader
 
 from .data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
-from .metrics import get_metrics, StableCosineSimilarity, StableKLDivergence, StableJensonShannonDivergence
+from .metrics import get_metrics, StableCosineSimilarity, StableKLDivergence, StableJensonShannonDivergence, \
+    StableHellingerDistance
 from .train import run_train_test, run_cv
 
 
@@ -84,7 +85,7 @@ def mulc_experiment(
 
     best_model_callback = ModelCheckpoint(
         dirpath='checkpoints/',
-        filename='best-model-{epoch:02d}-{val_loss:.2f}',
+        filename=f'{run_id}__' + 'best-model-{epoch:02d}-{val_loss:.2f}',
         monitor='val_loss',
         mode='min',
         save_top_k=1,
@@ -133,15 +134,19 @@ def mulc_experiment(
         dataset=dataset,
         batch_size=training_args["batch_size"],
         sampler=torch.utils.data.sampler.SubsetRandomSampler(idxs_train),
-        num_workers=2,
-        pin_memory=False,
+        num_workers=training_args.get("num_workers"),
+        pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=1,
     )
     dataloader_val = DataLoader(
         dataset=dataset,
         batch_size=training_args["batch_size"] * 16,
         sampler=torch.utils.data.sampler.SequentialSampler(idxs_val),
         num_workers=training_args.get("num_workers"),
-        pin_memory=False,
+        pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=1,
     )
 
     meta_data = {
@@ -154,11 +159,11 @@ def mulc_experiment(
     metrics = {
         "train": {
             "jsd": StableJensonShannonDivergence(reduction="mean"),
-            "mse": torchmetrics.MeanSquaredError(),
+            "hellinger": StableHellingerDistance(reduction="mean"),
         },
         "test": {
             "jsd": StableJensonShannonDivergence(reduction="mean"),
-            "mse": torchmetrics.MeanSquaredError(),
+            "hellinger": StableHellingerDistance(reduction="mean"),
         },
     }
 

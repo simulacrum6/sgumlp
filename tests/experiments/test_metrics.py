@@ -1,7 +1,8 @@
 import torch
 from torchmetrics.functional import kl_divergence, cosine_similarity
 
-from experiments.metrics import StableKLDivergence, StableJensonShannonDivergence, StableCosineSimilarity, js_divergence
+from experiments.metrics import StableKLDivergence, StableJensonShannonDivergence, StableCosineSimilarity, \
+    js_divergence, StableHellingerDistance, hellinger_distance
 
 
 def test_equivalence():
@@ -46,3 +47,32 @@ def test_jenson_shannon():
     js_two = js_stable.compute()
 
     assert torch.allclose(js_one / 2.0, js_two)
+
+
+def test_hellinger():
+    reduction = "mean"
+
+    p = torch.tensor([[0.0, 1.0]])
+    q = torch.tensor([[1.0, 0.0]])
+
+    assert torch.allclose(hellinger_distance(p, q), torch.tensor(1.0))
+    assert torch.allclose(hellinger_distance(p, p), torch.tensor(0.0))
+
+    preds = torch.randn(256, 8) * 10.0
+    target = torch.softmax(torch.randn_like(preds), -1)
+    target_correct = torch.softmax(preds, -1)
+    target_incorrect = torch.softmax(preds * -1, -1)
+
+    hellinger_stable = StableHellingerDistance(reduction=reduction)
+    assert torch.allclose(hellinger_stable(preds, target_correct), torch.tensor(0.0))
+
+    hellinger_stable.reset()
+    assert torch.allclose(hellinger_stable(preds, target_incorrect), torch.tensor(1.0), atol=1e-3)
+
+    hellinger_stable.reset()
+    hellinger_stable.update(preds, target)
+    hellinger_one = hellinger_stable.compute()
+    hellinger_stable.update(preds, target_correct)
+    hellinger_two = hellinger_stable.compute()
+
+    assert torch.allclose(hellinger_one / 2.0, hellinger_two)

@@ -48,6 +48,7 @@ def js_divergence(preds, target, log_prob=False, reduction: Literal["mean", "sum
 
     return jsd
 
+
 class StableJensonShannonDivergence(StableProbabilityMixin, torchmetrics.Metric):
     def __init__(self, epsilon=1e-8, reduction: Literal["mean", "sum"]="mean", normalize=True, **kwargs):
         super().__init__(**kwargs)
@@ -61,6 +62,32 @@ class StableJensonShannonDivergence(StableProbabilityMixin, torchmetrics.Metric)
         preds, target = self.preprocess_inputs(preds, target, self.epsilon)
         self.measures += js_divergence(preds, target, False, "sum", self.normalize)
         self.total += target.shape[0]
+
+    def compute(self):
+        if self.reduction == "mean":
+            return self.measures / self.total
+        else:
+            return self.measures
+
+
+def hellinger_distance(preds, target, reduction: Literal["mean", "sum"] = "mean"):
+    h = torch.sqrt(torch.sum((torch.sqrt(preds) - torch.sqrt(target))**2, -1)) * (1 / 2**0.5)
+    return h.mean() if reduction == "mean" else h.sum()
+
+
+class StableHellingerDistance(StableProbabilityMixin, torchmetrics.Metric):
+    def __init__(self, epsilon=1e-8, reduction: Literal["mean", "sum"]="mean", normalize=True, **kwargs):
+        super().__init__(**kwargs)
+        self.reduction = reduction
+        self.epsilon = epsilon
+        self.normalize = normalize
+        self.add_state("measures", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0, dtype=torch.int64), dist_reduce_fx="sum")
+
+    def update(self, preds, target):
+        preds, target = self.preprocess_inputs(preds, target, self.epsilon)
+        self.measures += hellinger_distance(preds, target, reduction="sum")
+        self.total += preds.shape[0]
 
     def compute(self):
         if self.reduction == "mean":
