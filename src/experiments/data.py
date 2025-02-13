@@ -250,7 +250,9 @@ class PatchDataset(torch.utils.data.Dataset):
 
     def get_image_and_target(self, i: int):
         if i < self.mmap_max_images:
-            return self._mmap_images[i], self._mmap_targets[i]
+            img = self._mmap_images[i].copy()
+            target = self._mmap_targets[i].copy()
+            return img, target
         return self.load_image_and_target(i)
 
     def __getitem__(self, idx):
