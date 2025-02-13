@@ -12,7 +12,7 @@ import torchmetrics
 from torch.utils.data import DataLoader
 
 from .data import load_benchmark_dataset, preprocess, PatchDataset, get_dataloader, load_and_preprocess_dataset
-from .metrics import get_metrics, CustomCosineSimilarity, CustomKLDivergence
+from .metrics import get_metrics, StableCosineSimilarity, StableKLDivergence
 from .train import run_train_test, run_cv
 
 
@@ -141,12 +141,12 @@ def mulc_vbwva_experiment(
 
     metrics = {
         "train": {
-            "cosine": CustomCosineSimilarity(reduction="mean"),
+            "cosine": StableCosineSimilarity(reduction="mean"),
             "mse": torchmetrics.MeanSquaredError(),
         },
         "test": {
-            "cosine": CustomCosineSimilarity(reduction="mean"),
-            "kld": CustomKLDivergence(reduction="mean"),
+            "cosine": StableCosineSimilarity(reduction="mean"),
+            "kld": StableKLDivergence(reduction="mean"),
             "mse": torchmetrics.MeanSquaredError(),
         },
     }

@@ -210,7 +210,7 @@ class PatchDataset(torch.utils.data.Dataset):
                 total=self.mmap_max_images,
                 unit="image pairs",
             ):
-                img, target = self.load_images(i)
+                img, target = self.load_image_and_target(i)
                 mmap_images[i] = img
                 mmap_targets[i] = target
 
@@ -244,9 +244,14 @@ class PatchDataset(torch.utils.data.Dataset):
         )
         return np.pad(img, **pad_args), np.pad(target, **pad_args)
 
-    def load_images(self, i):
+    def load_image_and_target(self, i):
         image_fp, target_img_fp = self._get_paths(i)
         return self._load_images(image_fp, target_img_fp)
+
+    def get_image_and_target(self, i: int):
+        if i < self.mmap_max_images:
+            return self._mmap_images[i], self._mmap_targets[i]
+        return self.load_image_and_target(i)
 
     def __getitem__(self, idx):
         i = idx // self.num_pixels
@@ -256,10 +261,7 @@ class PatchDataset(torch.utils.data.Dataset):
         w = patch_idx % self.width
         w_ = w + self.patch_size
 
-        if i < self.mmap_max_images:
-            img, target = self._mmap_images[i], self._mmap_targets[i]
-        else:
-            img, target = self.load_images(i)
+        img, target = self.get_image_and_target(i)
         patch = img[:, h:h_, w:w_]
         mask = target[:, h, w]
 
