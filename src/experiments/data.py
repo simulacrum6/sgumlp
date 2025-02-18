@@ -263,9 +263,13 @@ class PatchDataset(torch.utils.data.Dataset):
         w = patch_idx % self.width
         w_ = w + self.patch_size
 
-        img, target = self.get_image_and_target(i)
-        patch = img[:, h:h_, w:w_]
-        mask = target[:, h, w]
+        if i < self.mmap_max_images:
+            patch = self._mmap_images[i, :, h:h_, w:w_].copy()
+            mask = self._mmap_targets[i, :, h, w].copy()
+        else:
+            img, target = self.get_image_and_target(i)
+            patch = img[:, h:h_, w:w_]
+            mask = target[:, h, w]
 
         return torch.tensor(patch).float(), torch.tensor(mask).float()
 

@@ -73,7 +73,7 @@ def setup_experiment(experiment_cfg_path):
     )
 
 def mulc_experiment(
-    experiment_cfg_path: str = "data/config/mulc_slmo.experiment.json",
+    experiment_cfg_path: str = "data/config/mulc.experiment.json",
 ):
     cfg, run_id, save_dir, logger = setup_experiment(experiment_cfg_path)
 
