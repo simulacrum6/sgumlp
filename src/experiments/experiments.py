@@ -124,11 +124,16 @@ def mulc_experiment(
     )
 
     n = len(dataset)
-    idxs = np.arange(n)
-    np.random.shuffle(idxs)
+    idxs = np.random.permutation(n)
+
+    max_pixels = ds_cfg.get("max_pixels")
+    if max_pixels is None:
+        max_pixels = n
+    n = min(n, max_pixels)
+
     n_train = int(n * training_args["train_percentage"])
     idxs_train = idxs[:n_train]
-    idxs_val = idxs[n_train:]
+    idxs_val = idxs[n_train:max_pixels]
 
     dataloader_train = DataLoader(
         dataset=dataset,
