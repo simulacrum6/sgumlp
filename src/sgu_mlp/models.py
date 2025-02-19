@@ -363,6 +363,7 @@ class SGUMLPMixer(torch.nn.Module):
         mixer_features_sequence (int): Hidden dimension for token-mixing SGU/MLP blocks
         mixer_use_sgu (bool, optional): Whether to use SGU blocks instead of standard MLPs. Defaults to True
         dwc_kernels (tuple, optional): Kernel sizes for parallel depthwise convolutions. Defaults to (1, 3, 5)
+        use_dwc (bool, optional): Whether to use depthwise convolutions. Defaults to True.
         num_blocks (int, optional): Number of sequential mixer blocks. Defaults to 1
         activation (str, optional): Activation function for blocks. Defaults to 'gelu'
         residual_weight (float, optional): Scaling factor for residual connection. Defaults to 2
@@ -400,6 +401,7 @@ class SGUMLPMixer(torch.nn.Module):
         mixer_features_sequence: int,
         mixer_use_sgu=True,
         dwc_kernels=(1, 3, 5),
+        use_dwc=True,
         num_blocks=1,
         activation="gelu",
         residual_weight=2,
@@ -430,7 +432,7 @@ class SGUMLPMixer(torch.nn.Module):
 
         self.output_dimensions = (self.n_tokens, self.n_channels) if num_classes == 0 else (num_classes,)
 
-        self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels)
+        self.dwc = ParallelDepthwiseConv2d(patch_channels, dwc_kernels) if use_dwc else torch.nn.Identity()
         residual_module = torch.nn.Parameter if learnable_residual else torch.nn.Buffer
         self.residual_weight = residual_module(torch.tensor(residual_weight))
         self.token_embedding = torch.nn.Conv2d(
