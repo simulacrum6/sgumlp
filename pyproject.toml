@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sgu-mlp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Implementation of the SGU-MLP Architecture (mostly) as described in the paper \"Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping\"."
 authors = ["Marius Hamacher <marius.hamacher@outlook.de>"]
 readme = "README.md"

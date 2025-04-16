@@ -57,10 +57,19 @@ print(out.shape)
 
 If you just want to use SGU-MLP Architecture:
 ````bash
+pip install sgu-mlp
+````
+
+````bash
 pip install git+https://github.com/simulacrum6/sgu-mlp.git
 ````
 
-If you want to run the experiments as well:
+
+If you want to run the experiments as well, add the `[experiments]` extras:
+````bash
+pip install "sgu-mlp[experiments]"
+````
+
 ````bash
 pip install "git+https://github.com/simulacrum6/sgu-mlp.git#egg=sgu-mlp[experiments]"
 ````

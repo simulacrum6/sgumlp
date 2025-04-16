@@ -5,7 +5,7 @@ authors:
 - family-names: "Hamacher"
   given-names: "Marius"
 title: "SGU-MLP: Pytorch Implementation of the Spatial Gated Multi-Layer Perceptron"
-version: 0.1.0
+version: 0.1.1
 date-released: 2025-04-16
 url: "https://github.com/simulacrum6/sgumlp"
 doi: https://doi.org/10.5281/zenodo.15227846
