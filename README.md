@@ -1,5 +1,5 @@
 # SGU-MLP: Pytorch Impelementation of the Spatial Gated Multilayer Perceptron
-![image](https://zenodo.org/badge/DOI/10.5281/zenodo.15227846.svg)
+[![DOI](https://zenodo.org/badge/914470731.svg)](https://doi.org/10.5281/zenodo.15227846)
 
 Pytorch implementation of the SGU-MLP Architecture from the paper "Spatial Gated Multi-Layer Perceptron for Land Use". 
 The implementation follows the [implementation of the original authors](https://github.com/aj1365/SGUMLP/blob/main/SGUMLP.ipynb). It differs from the architecture described in the [paper published on GitHub](https://github.com/aj1365/SGUMLP/blob/main/Spatial_Gated_Multi-Layer_Perceptron_for_Land_Use_and_Land_Cover_Mapping.pdf) in the following aspects: 
@@ -127,6 +127,7 @@ When using this software for your research, please cite the orginial article as 
   author = {Hamacher, Marius},
   year = {2025},
   url = {https://github.com/simulacrum6/sgu-mlp},
-  version = {0.1.0},
-  note = {Pytorch Implementation of the SGU-MLP Architecture from the paper "Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping"}}
+  version = {0.1.1},
+  note = {Pytorch Implementation of the SGU-MLP Architecture from the paper "Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping"}},
+  doi = {10.5281/zenodo.15227847}
 ````
