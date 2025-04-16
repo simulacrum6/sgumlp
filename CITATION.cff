@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+type: software
+message: "If you use this software in your research, please cite it as below. Please also cite the original publication."
+authors:
+- family-names: "Hamacher"
+  given-names: "Marius"
+title: "SGU-MLP: Pytorch Implementation of the Spatial Gated Multi-Layer Perceptron"
+version: 0.1.0
+date-released: 2025-04-16
+url: "https://github.com/simulacrum6/sgumlp"
+# doi: to be added
