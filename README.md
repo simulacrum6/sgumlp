@@ -128,6 +128,6 @@ When using this software for your research, please cite the orginial article as 
   year = {2025},
   url = {https://github.com/simulacrum6/sgu-mlp},
   version = {0.1.1},
-  note = {Pytorch Implementation of the SGU-MLP Architecture from the paper "Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping"}},
-  doi = {10.5281/zenodo.15227847}
+  note = {Pytorch Implementation of the SGU-MLP Architecture from the paper "Spatial Gated Multi-Layer Perceptron for Land Use and Land Cover Mapping"},
+  doi = {10.5281/zenodo.15227847}}
 ````
